@@ -69,6 +69,21 @@ test('renderDeck escapa HTML do conteudo', () => {
   assert.equal(html.includes('&#39;'), true);
 });
 
+test('renderDeck preserva controles do template mestre', () => {
+  const html = renderDeck(normalizePlan({
+    title: 'Controles',
+    slides: [{ type: 'cover', title: 'Controles', lead: 'Notas do instrutor' }]
+  }));
+  assert.match(html, /class="navigation"/);
+  assert.match(html, /onclick="nextSlide\(\)"/);
+  assert.match(html, /id="shortcutsModal"/);
+  assert.match(html, /toggleShortcuts/);
+  assert.match(html, /id="instructorPanel"/);
+  assert.match(html, /toggleInstructor/);
+  assert.match(html, /id="ipNotes"/);
+  assert.match(html, /data-notes="Notas do instrutor"/);
+});
+
 test('esc cobre aspas simples', () => {
   assert.equal(esc(`<a href='x'>&"`), '&lt;a href=&#39;x&#39;&gt;&amp;&quot;');
 });

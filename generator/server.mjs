@@ -1146,9 +1146,14 @@ function coverTitleHtml(title) {
   return `${head}<br><span class="gradient-title">${esc(parts.join(' - '))}</span>`;
 }
 
+function slideNotesAttr(slide) {
+  const notes = text(slide.lead || slide.subtitle || slide.title);
+  return notes ? ` data-notes="${esc(notes)}"` : '';
+}
+
 function renderSlide(slide, index) {
   if (slide.type === 'cover') {
-    return `<section class="slide${index === 0 ? ' active' : ''}">
+    return `<section class="slide${index === 0 ? ' active' : ''}"${slideNotesAttr(slide)}>
 <div class="capa-layout">
 <div class="capa-eyebrow">Universidade Corporativa &bull; ${esc(slide.subtitle || 'Treinamento')}</div>
 <h1 class="capa-title">${coverTitleHtml(slide.title)}</h1>
@@ -1158,7 +1163,7 @@ function renderSlide(slide, index) {
 </section>`;
   }
   if (slide.type === 'checklist') {
-    return `<section class="slide">
+    return `<section class="slide"${slideNotesAttr(slide)}>
 <div class="badge"><i class="fas ${menuIcon(slide.type)}"></i> ${String(index).padStart(2, '0')}</div>
 <h2>${esc(slide.title)}</h2>
 ${slide.lead ? `<p class="lead">${esc(slide.lead)}</p>` : ''}
@@ -1166,7 +1171,7 @@ ${slide.lead ? `<p class="lead">${esc(slide.lead)}</p>` : ''}
 </section>`;
   }
   if (slide.type === 'flow') {
-    return `<section class="slide">
+    return `<section class="slide"${slideNotesAttr(slide)}>
 <div class="badge"><i class="fas ${menuIcon(slide.type)}"></i> Processo</div>
 <h2>${esc(slide.title)}</h2>
 ${slide.lead ? `<p class="lead">${esc(slide.lead)}</p>` : ''}
@@ -1174,14 +1179,14 @@ ${slide.lead ? `<p class="lead">${esc(slide.lead)}</p>` : ''}
 </section>`;
   }
   if (slide.type === 'table') {
-    return `<section class="slide">
+    return `<section class="slide"${slideNotesAttr(slide)}>
 <div class="badge"><i class="fas ${menuIcon(slide.type)}"></i> Referência</div>
 <h2>${esc(slide.title)}</h2>
 <table class="simple-table"><tbody>${slide.rows.map((row) => `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table>
 </section>`;
   }
   if (slide.type === 'closing') {
-    return `<section class="slide">
+    return `<section class="slide"${slideNotesAttr(slide)}>
 <div class="badge"><i class="fas fa-award"></i> Encerramento</div>
 <div class="capa-layout">
 <div class="capa-eyebrow">Treinamento Concluído</div>
@@ -1191,7 +1196,7 @@ ${slide.lead ? `<p class="lead">${esc(slide.lead)}</p>` : ''}
 </div>
 </section>`;
   }
-  return `<section class="slide">
+  return `<section class="slide"${slideNotesAttr(slide)}>
 <div class="badge"><i class="fas ${menuIcon(slide.type)}"></i> Conteúdo</div>
 <h2>${esc(slide.title)}</h2>
 ${slide.lead ? `<p class="lead">${esc(slide.lead)}</p>` : ''}
@@ -1253,6 +1258,11 @@ body.light-mode .theme-toggle{border-color:rgba(184,138,34,.35);}
 body.light-mode .theme-toggle i{color:#B88A22;}
 .theme-toggle{width:38px;min-width:38px;padding:0;aspect-ratio:1;border-radius:12px;}
 .theme-toggle i{color:var(--accent);}
+.slide-counter{font-family:'Orbitron',sans-serif;font-size:18px;font-weight:700;color:var(--accent);min-width:90px;text-align:right}.navigation{position:fixed;right:28px;bottom:22px;display:flex;gap:12px;z-index:150}.navigation>div{display:flex;flex-direction:column;align-items:center}.nav-btn{width:44px;height:44px;border-radius:50%;border:1px solid rgba(240,197,90,.28);background:rgba(0,0,0,.35);backdrop-filter:blur(12px);color:white;font-size:15px;cursor:pointer;transition:.3s}.nav-btn:hover{background:rgba(240,197,90,.18);transform:scale(1.08)}.nav-label{text-align:center;font-size:11px;margin-top:6px;color:#D0DDF2}.menu-toggle{display:none;width:42px;height:42px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:white;font-size:17px;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;transition:.3s}.menu-toggle:hover{background:rgba(240,197,90,.12);border-color:rgba(240,197,90,.2)}.modal-overlay{position:fixed;inset:0;z-index:300;background:rgba(2,8,18,.72);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;padding:24px}.modal-overlay.show{display:flex}.modal{position:relative;width:min(560px,92vw);background:linear-gradient(135deg,rgba(10,22,42,.98),rgba(4,14,28,.98));border:1px solid var(--border);border-radius:24px;padding:32px;box-shadow:0 30px 80px rgba(0,0,0,.6)}.modal h3{color:var(--accent);margin-bottom:20px;display:flex;align-items:center;gap:12px;font-size:20px}.modal-close{position:absolute;top:20px;right:24px;width:38px;height:38px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.04);color:#fff;font-size:16px;cursor:pointer;transition:.3s}.modal-close:hover{background:rgba(240,197,90,.12);border-color:rgba(240,197,90,.25)}.kbd-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.06)}.kbd-row:last-child{border-bottom:none}.kbd-row>span{font-size:15px;color:rgba(255,255,255,.85)}.kbd{display:inline-flex;gap:6px}.kbd b{font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--accent);min-width:34px;text-align:center}.instructor-panel{position:fixed;left:260px;right:0;bottom:0;z-index:80;background:linear-gradient(to top,rgba(2,10,20,.99),rgba(2,10,20,.95));border-top:1px solid rgba(240,197,90,.28);padding:18px 28px;display:none;grid-template-columns:1fr 300px;gap:24px;align-items:center;max-height:38vh}.instructor-panel{transition:left .28s ease}body.sidebar-collapsed .instructor-panel{left:84px}body.instructor .instructor-panel{display:grid}body.instructor .slide{padding-bottom:calc(38vh + 20px)}.ip-notes h4{font-family:'Orbitron',sans-serif;font-size:12px;letter-spacing:1px;color:var(--accent);margin-bottom:8px;text-transform:uppercase;display:flex;align-items:center;gap:8px}.ip-title{font-size:17px;font-weight:700;margin-bottom:6px}.ip-side{display:flex;flex-direction:column;gap:12px;border-left:1px solid rgba(255,255,255,.12);padding-left:20px}.ip-side .ip-lab{font-size:11px;color:#7F9BC0;letter-spacing:1px}.ip-timer{font-family:'Orbitron',sans-serif;font-size:30px;font-weight:800;color:var(--accent);line-height:1}.ip-nav{font-size:13px;color:rgba(255,255,255,.6)}.ip-nav b{color:#fff;font-weight:600}.ip-notes-edit{width:100%;min-height:64px;max-height:22vh;resize:vertical;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;padding:10px 12px;color:#fff;font-family:'Montserrat',sans-serif;font-size:14px;line-height:1.5}.ip-notes-edit:focus{outline:none;border-color:rgba(240,197,90,.4)}.ip-saved{font-size:11px;color:#74FF9F;margin-top:4px;height:14px}
+body.light-mode .modal{background:linear-gradient(135deg,rgba(255,255,255,.98),rgba(239,245,252,.98));border-color:rgba(0,52,103,.16);box-shadow:0 30px 80px rgba(0,52,103,.18)}body.light-mode .modal h3{color:#8A640C}body.light-mode .kbd-row{border-color:rgba(0,52,103,.12)}body.light-mode .kbd-row>span,body.light-mode .ip-nav,body.light-mode .ip-nav b{color:#244567}body.light-mode .kbd b{background:rgba(0,52,103,.06);border-color:rgba(0,52,103,.16);color:#8A640C}body.light-mode .instructor-panel{background:linear-gradient(to top,rgba(244,247,251,.99),rgba(239,245,252,.95));border-color:rgba(0,52,103,.2)}body.light-mode .ip-notes-edit{background:rgba(255,255,255,.86);border-color:rgba(0,52,103,.18);color:#102033}body.light-mode .ip-side{border-color:rgba(0,52,103,.12)}
+@media(max-width:1200px){.top-actions{gap:6px}.action-btn{padding:8px 10px}.btn-label{display:none}.slide-counter{min-width:72px;font-size:15px}}
+@media(max-width:980px){.menu-toggle{display:flex}.instructor-panel{left:0;grid-template-columns:1fr;max-height:52vh;overflow-y:auto}body.sidebar-collapsed .instructor-panel{left:0}body.instructor .slide{padding-bottom:calc(52vh + 20px)}}
+@media(max-width:640px){.navigation{right:14px;bottom:14px;gap:8px}.nav-btn{width:48px;height:48px;font-size:15px}.slide-counter{display:none}}
 </style>
 </head>
 <body>
@@ -1261,21 +1271,147 @@ body.light-mode .theme-toggle i{color:#B88A22;}
 <div class="training-title">${esc(plan.title)}</div>
 <div class="training-subtitle">${esc(plan.area)}<br>• Universidade Corporativa</div>
 <div class="menu-title">Módulos</div>
-<div class="menu">${plan.slides.map((slide, i) => `<div class="menu-item${i === 0 ? ' active' : ''}" onclick="goSlide(${i})"><i class="fas ${menuIcon(slide.type)}"></i><div><strong>${truncated(slide.title, 22)}</strong><span>Slide ${i + 1}</span></div></div>`).join('')}</div>
+<div class="menu">${plan.slides.map((slide, i) => `<div class="menu-item${i === 0 ? ' active' : ''}" data-slide-index="${i}"><i class="fas ${menuIcon(slide.type)}"></i><div><strong>${truncated(slide.title, 22)}</strong><span>Slide ${i + 1}</span></div></div>`).join('')}</div>
 <div class="progress-card"><h4>PROGRESSO DO TREINAMENTO</h4><div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div><div class="progress-info"><span id="progressText">1 / ${total}</span><span style="color:#74FF9F;">Em andamento</span></div></div>
 </div>
 <div class="main">
-<div class="topbar"><div class="top-progress"><div class="top-progress-head"><button class="sidebar-collapse-btn" type="button" onclick="toggleSidebar()" title="Recolher menu lateral" aria-label="Recolher menu lateral"><i class="fas fa-chevron-left"></i></button><span>PROGRESSO GERAL</span></div><div class="bar"><div class="bar-fill" id="topProgress"></div></div></div><div class="top-actions"><a class="action-btn" href="/index.html"><i class="fas fa-house"></i><span class="btn-label">Catálogo</span></a><div class="action-btn" onclick="toggleFullscreen()"><i class="fas fa-expand" id="fsIcon"></i><span class="btn-label">Tela Cheia</span></div><div class="action-btn" id="penBtn" onclick="togglePen()"><i class="fas fa-pen-nib"></i><span class="btn-label">Marcador</span></div><div class="slide-counter" id="slideCounter">01 / 00</div><button class="action-btn theme-toggle" type="button" onclick="toggleTheme()" title="Alternar tema" aria-label="Alternar tema"><i class="fas fa-sun"></i></button></div></div>
+<div class="topbar"><div class="top-progress"><div class="top-progress-head"><button class="sidebar-collapse-btn" type="button" onclick="toggleSidebar()" title="Recolher menu lateral" aria-label="Recolher menu lateral"><i class="fas fa-chevron-left"></i></button><span>PROGRESSO GERAL</span></div><div class="bar"><div class="bar-fill" id="topProgress"></div></div></div><div class="top-actions"><button class="menu-toggle" id="menuToggle" type="button" onclick="toggleSidebar()" title="Abrir menu" aria-label="Abrir menu"><i class="fas fa-bars"></i></button><a class="action-btn" href="/index.html"><i class="fas fa-house"></i><span class="btn-label">Catálogo</span></a><button class="action-btn" type="button" onclick="toggleShortcuts()"><i class="fas fa-keyboard"></i><span class="btn-label">Atalhos</span></button><button class="action-btn" type="button" onclick="toggleFullscreen()"><i class="fas fa-expand" id="fsIcon"></i><span class="btn-label">Tela Cheia</span></button><button class="action-btn" id="instructorBtn" type="button" onclick="toggleInstructor()"><i class="fas fa-user-tie"></i><span class="btn-label">Modo Instrutor</span></button><button class="action-btn" id="penBtn" type="button" onclick="togglePen()"><i class="fas fa-pen-nib"></i><span class="btn-label">Marcador</span></button><div class="slide-counter" id="slideCounter">01 / 00</div><button class="action-btn theme-toggle" type="button" onclick="toggleTheme()" title="Alternar tema" aria-label="Alternar tema"><i class="fas fa-sun"></i></button></div></div>
 <div class="slides">${plan.slides.map(renderSlide).join('\n')}</div>
 <div class="slide-footer"><img data-asset="logo3f" alt="3F Contact Center"></div>
+<div class="navigation"><div><button class="nav-btn" type="button" onclick="prevSlide()" title="Slide anterior" aria-label="Slide anterior"><i class="fas fa-chevron-left"></i></button><div class="nav-label">ANTERIOR</div></div><div><button class="nav-btn" type="button" onclick="nextSlide()" title="Próximo slide" aria-label="Próximo slide"><i class="fas fa-chevron-right"></i></button><div class="nav-label">PRÓXIMO</div></div></div>
 </div>
+<div class="modal-overlay" id="shortcutsModal" onclick="if(event.target===this)toggleShortcuts()"><div class="modal"><button class="modal-close" type="button" onclick="toggleShortcuts()" aria-label="Fechar atalhos"><i class="fas fa-xmark"></i></button><h3><i class="fas fa-keyboard"></i> Atalhos de Teclado</h3><div class="kbd-row"><span>Próximo slide</span><span class="kbd"><b>→</b><b>Espaço</b></span></div><div class="kbd-row"><span>Slide anterior</span><span class="kbd"><b>←</b></span></div><div class="kbd-row"><span>Primeiro / último</span><span class="kbd"><b>Home</b><b>End</b></span></div><div class="kbd-row"><span>Tela cheia</span><span class="kbd"><b>F</b></span></div><div class="kbd-row"><span>Modo instrutor</span><span class="kbd"><b>P</b></span></div><div class="kbd-row"><span>Marcador</span><span class="kbd"><b>D</b></span></div><div class="kbd-row"><span>Limpar marcações</span><span class="kbd"><b>C</b></span></div><div class="kbd-row"><span>Abrir esta ajuda</span><span class="kbd"><b>?</b></span></div><div class="kbd-row"><span>Fechar / sair</span><span class="kbd"><b>Esc</b></span></div></div></div>
+<div class="instructor-panel" id="instructorPanel"><div class="ip-notes"><h4><i class="fas fa-chalkboard-user"></i> Notas do Instrutor</h4><div class="ip-title" id="ipTitle">—</div><textarea id="ipNotes" class="ip-notes-edit" placeholder="Digite suas notas para este slide... (salva sozinho neste navegador)"></textarea><div class="ip-saved" id="ipSaved"></div></div><div class="ip-side"><div><div class="ip-lab">TEMPO</div><div class="ip-timer" id="ipTimer">00:00</div></div><div class="ip-nav">Próximo: <b id="ipNext">—</b></div></div></div>
 <canvas id="drawCanvas"></canvas>
 <script>
-function applyConfiguredAssets(mode=localStorage.getItem('3f-theme')||'dark'){const light=mode==='light';document.body.classList.toggle('light-mode',light);document.querySelectorAll('[data-asset]').forEach((el)=>{const key=el.dataset.asset;const lightKey=key+'Light';const asset=window.TRAINING_CONFIG.assets[light&&window.TRAINING_CONFIG.assets[lightKey]?lightKey:key];if(el.tagName==='IMG')el.src=asset;else el.style.backgroundImage='url("'+asset+'")';});document.querySelectorAll('.theme-toggle').forEach((btn)=>{btn.innerHTML=light?'<i class="fas fa-moon"></i>':'<i class="fas fa-sun"></i>';btn.setAttribute('aria-label',light?'Ativar tema escuro':'Ativar tema claro');btn.setAttribute('title',light?'Ativar tema escuro':'Ativar tema claro');});}
+const slides=document.querySelectorAll('.slide');
+const menuItems=document.querySelectorAll('.menu-item');
+const progressFill=document.getElementById('progressFill');
+const topProgress=document.getElementById('topProgress');
+const progressText=document.getElementById('progressText');
+const slideCounter=document.getElementById('slideCounter');
+const shortcutsModal=document.getElementById('shortcutsModal');
+const drawCanvas=document.getElementById('drawCanvas');
+const drawCtx=drawCanvas.getContext('2d');
+let current=0;
+let penOn=false;
+let drawing=false;
+let ipTimerInt=null;
+let ipStart=0;
+
+function applyConfiguredAssets(mode=localStorage.getItem('3f-theme')||'dark'){
+const light=mode==='light';
+document.body.classList.toggle('light-mode',light);
+document.querySelectorAll('[data-asset]').forEach((el)=>{
+const key=el.dataset.asset;
+const lightKey=key+'Light';
+const asset=window.TRAINING_CONFIG.assets[light&&window.TRAINING_CONFIG.assets[lightKey]?lightKey:key];
+if(!asset)return;
+if(el.tagName==='IMG')el.src=asset;
+else el.style.backgroundImage='url("'+asset+'")';
+});
+document.querySelectorAll('.theme-toggle').forEach((btn)=>{
+btn.innerHTML=light?'<i class="fas fa-moon"></i>':'<i class="fas fa-sun"></i>';
+btn.setAttribute('aria-label',light?'Ativar tema escuro':'Ativar tema claro');
+btn.setAttribute('title',light?'Ativar tema escuro':'Ativar tema claro');
+});
+}
 function setTheme(mode){localStorage.setItem('3f-theme',mode);applyConfiguredAssets(mode)}
 function toggleTheme(){setTheme(document.body.classList.contains('light-mode')?'dark':'light')}
-function toggleSidebar(){document.body.classList.toggle('sidebar-collapsed');}
-const slides=document.querySelectorAll('.slide'),menuItems=document.querySelectorAll('.menu-item'),progressFill=document.getElementById('progressFill'),topProgress=document.getElementById('topProgress'),progressText=document.getElementById('progressText'),slideCounter=document.getElementById('slideCounter');let current=0;function pad(n){return String(n).padStart(2,'0')}function updateSlides(){slides.forEach((s,i)=>s.classList.toggle('active',i===current));menuItems.forEach((m,i)=>m.classList.toggle('active',i===current));const p=((current+1)/slides.length)*100;progressFill.style.width=p+'%';topProgress.style.width=p+'%';progressText.innerHTML=(current+1)+' / '+slides.length;slideCounter.textContent=pad(current+1)+' / '+pad(slides.length)}function nextSlide(){if(current<slides.length-1){current++;updateSlides()}}function prevSlide(){if(current>0){current--;updateSlides()}}function goSlide(i){current=i;updateSlides()}window.addEventListener('keydown',(e)=>{if(e.target.matches('input,textarea'))return;const k=e.key.toLowerCase();if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();nextSlide()}if(e.key==='ArrowLeft')prevSlide();if(e.key==='Home'){current=0;updateSlides()}if(e.key==='End'){current=slides.length-1;updateSlides()}if(k==='f')toggleFullscreen();if(k==='d')togglePen();if(k==='c')clearDraw();});function toggleFullscreen(){const d=document.documentElement;if(!document.fullscreenElement)(d.requestFullscreen||function(){}).call(d);else(document.exitFullscreen||function(){}).call(document)}const drawCanvas=document.getElementById('drawCanvas'),drawCtx=drawCanvas.getContext('2d');let penOn=false,drawing=false;function resizeCanvas(){drawCanvas.width=window.innerWidth;drawCanvas.height=window.innerHeight;drawCtx.strokeStyle='#F0C55A';drawCtx.lineWidth=3;drawCtx.lineCap='round';drawCtx.lineJoin='round'}function clearDraw(){drawCtx.clearRect(0,0,drawCanvas.width,drawCanvas.height)}function togglePen(){penOn=!penOn;drawCanvas.style.pointerEvents=penOn?'auto':'none';drawCanvas.style.cursor=penOn?'crosshair':'';const b=document.getElementById('penBtn');if(b)b.style.borderColor=penOn?'rgba(240,197,90,.45)':'';if(penOn)resizeCanvas()}drawCanvas.addEventListener('pointerdown',e=>{if(!penOn)return;drawing=true;drawCtx.beginPath();drawCtx.moveTo(e.clientX,e.clientY)});drawCanvas.addEventListener('pointermove',e=>{if(!penOn||!drawing)return;drawCtx.lineTo(e.clientX,e.clientY);drawCtx.stroke()});window.addEventListener('pointerup',()=>drawing=false);window.addEventListener('resize',()=>{if(penOn)resizeCanvas()});new MutationObserver(clearDraw).observe(document.querySelector('.slides'),{attributes:true,subtree:true,attributeFilter:['class']});applyConfiguredAssets();updateSlides();
+function toggleSidebar(){
+if(window.innerWidth>980){document.body.classList.toggle('sidebar-collapsed');return}
+document.querySelector('.sidebar').classList.toggle('open');
+}
+function closeSidebar(){document.querySelector('.sidebar').classList.remove('open')}
+function pad(n){return String(n).padStart(2,'0')}
+function slideTitle(sec){if(!sec)return '—';const h=sec.querySelector('.capa-title,h1,h2');return h?h.textContent.trim().replace(/\\s+/g,' '):'Slide'}
+function noteKey(i){return 'dl-notes:'+document.title+':'+i}
+function refreshInstructor(){
+if(!document.body.classList.contains('instructor'))return;
+const sec=slides[current];
+document.getElementById('ipTitle').textContent=slideTitle(sec);
+const ta=document.getElementById('ipNotes');
+const saved=localStorage.getItem(noteKey(current));
+ta.value=saved!=null?saved:(sec&&sec.dataset.notes?sec.dataset.notes:'');
+document.getElementById('ipSaved').textContent='';
+document.getElementById('ipNext').textContent=current<slides.length-1?slideTitle(slides[current+1]):'— fim —';
+}
+function updateSlides(){
+slides.forEach((slide,index)=>slide.classList.toggle('active',index===current));
+menuItems.forEach((item,index)=>item.classList.toggle('active',index===current));
+const progress=((current+1)/slides.length)*100;
+progressFill.style.width=progress+'%';
+topProgress.style.width=progress+'%';
+progressText.innerHTML=(current+1)+' / '+slides.length;
+slideCounter.textContent=pad(current+1)+' / '+pad(slides.length);
+const activeItem=menuItems[current];
+if(activeItem)activeItem.scrollIntoView({block:'nearest'});
+clearDraw();
+refreshInstructor();
+}
+function nextSlide(){if(current<slides.length-1){current++;updateSlides()}}
+function prevSlide(){if(current>0){current--;updateSlides()}}
+function goSlide(index){current=Math.max(0,Math.min(slides.length-1,Number(index)||0));updateSlides();closeSidebar()}
+menuItems.forEach((item,index)=>item.addEventListener('click',()=>goSlide(index)));
+function toggleShortcuts(){shortcutsModal.classList.toggle('show')}
+function toggleFullscreen(){
+const d=document.documentElement;
+if(!document.fullscreenElement)(d.requestFullscreen||function(){}).call(d);
+else(document.exitFullscreen||function(){}).call(document);
+}
+function syncFsIcon(){const icon=document.getElementById('fsIcon');if(icon)icon.className=document.fullscreenElement?'fas fa-compress':'fas fa-expand'}
+document.addEventListener('fullscreenchange',syncFsIcon);
+function toggleInstructor(){
+const on=document.body.classList.toggle('instructor');
+const btn=document.getElementById('instructorBtn');
+if(btn)btn.style.borderColor=on?'rgba(240,197,90,.45)':'';
+if(on){ipStart=Date.now();tickTimer();ipTimerInt=setInterval(tickTimer,1000);refreshInstructor()}
+else{clearInterval(ipTimerInt);ipTimerInt=null}
+}
+function tickTimer(){
+const el=document.getElementById('ipTimer');
+if(!el)return;
+const seconds=Math.floor((Date.now()-ipStart)/1000);
+el.textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
+}
+document.getElementById('ipNotes').addEventListener('input',function(){
+localStorage.setItem(noteKey(current),this.value);
+const saved=document.getElementById('ipSaved');
+saved.textContent='salvo automaticamente';
+clearTimeout(this._t);
+this._t=setTimeout(()=>{saved.textContent=''},1200);
+});
+function resizeCanvas(){drawCanvas.width=window.innerWidth;drawCanvas.height=window.innerHeight;drawCtx.strokeStyle='#F0C55A';drawCtx.lineWidth=3;drawCtx.lineCap='round';drawCtx.lineJoin='round'}
+function clearDraw(){drawCtx.clearRect(0,0,drawCanvas.width,drawCanvas.height)}
+function togglePen(){
+penOn=!penOn;
+drawCanvas.style.pointerEvents=penOn?'auto':'none';
+drawCanvas.style.cursor=penOn?'crosshair':'';
+const btn=document.getElementById('penBtn');
+if(btn)btn.style.borderColor=penOn?'rgba(240,197,90,.45)':'';
+if(penOn)resizeCanvas();
+}
+drawCanvas.addEventListener('pointerdown',(event)=>{if(!penOn)return;drawing=true;drawCtx.beginPath();drawCtx.moveTo(event.clientX,event.clientY)});
+drawCanvas.addEventListener('pointermove',(event)=>{if(!penOn||!drawing)return;drawCtx.lineTo(event.clientX,event.clientY);drawCtx.stroke()});
+window.addEventListener('pointerup',()=>{drawing=false});
+window.addEventListener('resize',()=>{if(penOn)resizeCanvas()});
+window.addEventListener('keydown',(event)=>{
+if(event.target.matches('input,textarea'))return;
+const key=event.key.toLowerCase();
+if(event.key==='ArrowRight'||event.key===' '){event.preventDefault();nextSlide()}
+if(event.key==='ArrowLeft')prevSlide();
+if(event.key==='Home'){current=0;updateSlides()}
+if(event.key==='End'){current=slides.length-1;updateSlides()}
+if(key==='f')toggleFullscreen();
+if(key==='p')toggleInstructor();
+if(key==='d')togglePen();
+if(key==='c')clearDraw();
+if(event.key==='?'||(event.shiftKey&&event.key==='/'))toggleShortcuts();
+if(event.key==='Escape'){shortcutsModal.classList.remove('show');if(penOn)togglePen()}
+});
+applyConfiguredAssets();
+resizeCanvas();
+updateSlides();
 </script>
 </body>
 </html>`;
