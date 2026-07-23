@@ -52,6 +52,9 @@ Em produção/Portainer, troque por uma chave forte:
 GENERATOR_API_KEY=<chave-forte-do-gerador>
 ```
 
+`GENERATOR_API_KEY` não tem valor padrão: o Compose falha se ela não estiver
+definida. Tentativas de validação são limitadas a 10 por minuto por IP.
+
 ## LLM
 
 Sem chave, o gerador usa fallback local.
@@ -68,6 +71,28 @@ Também aceita:
 
 ```text
 OPENAI_API_KEY=<sua-chave>
+```
+
+### Hosts autorizados
+
+A `LLM_API_URL` só pode apontar para um host da allowlist — caso contrário a chave
+da LLM poderia ser enviada, no header `Authorization`, para um destino arbitrário.
+Padrão: `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`,
+`openrouter.ai`, `api.groq.com`, `api.deepseek.com`, `api.mistral.ai`, `api.cohere.com`.
+
+Para liberar outro provedor (ou uma LLM local):
+
+```text
+LLM_ALLOWED_HOSTS=api.openai.com,localhost
+LLM_TIMEOUT_MS=60000
+```
+
+Só `https://` é aceito; `http://` apenas para `localhost`/`127.0.0.1`.
+
+## Testes
+
+```bash
+npm test
 ```
 
 ## Configurar LLM pela tela
@@ -88,9 +113,16 @@ Ao salvar, o backend atualiza o `.env` local e ativa o slot escolhido. A chave n
 O gerador salva:
 
 - HTML em `treinamentos/decks/<area>/<titulo>_vN.html`
-- Registro em `treinamentos/catalog.json`
+- Registro em `treinamentos/catalog.json`, com a marca `"generated": true`
 
 O catálogo publicado em Nginx lê `catalog.json`, então novos treinamentos aparecem na tela principal.
+
+### Proteção dos decks autorais
+
+`/api/revise` reescreve o arquivo por inteiro. Por isso só aceita decks cuja
+entrada no catálogo tenha `"generated": true`. Decks montados à mão a partir de
+`treinamentos/_template/base-template.html` não têm essa marca e são recusados
+com HTTP 403 — não adicione a marca a eles.
 
 ## Fluxo v2
 

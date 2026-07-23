@@ -1,9 +1,9 @@
 import http from 'node:http';
-import { readFile, writeFile, mkdir, stat, readdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat, rename, rm } from 'node:fs/promises';
 import { createReadStream, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, randomUUID } from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
@@ -27,18 +27,81 @@ if (requireAuth && !generatorApiKey) {
   throw new Error('GENERATOR_API_KEY precisa estar configurada quando GENERATOR_REQUIRE_AUTH=true.');
 }
 
+// Hosts autorizados para chamadas de LLM. Sem essa lista, quem tiver a chave do
+// gerador poderia apontar a API para um host proprio e receber o briefing junto
+// com o header Authorization contendo a chave da LLM.
+const defaultLlmHosts = [
+  'api.openai.com',
+  'api.anthropic.com',
+  'generativelanguage.googleapis.com',
+  'openrouter.ai',
+  'api.groq.com',
+  'api.deepseek.com',
+  'api.mistral.ai',
+  'api.cohere.com'
+].join(',');
+const llmAllowedHosts = new Set(
+  String(process.env.LLM_ALLOWED_HOSTS || envFileValues.LLM_ALLOWED_HOSTS || defaultLlmHosts)
+    .split(',').map((host) => host.trim().toLowerCase()).filter(Boolean)
+);
+const llmTimeoutMs = Number(process.env.LLM_TIMEOUT_MS || envFileValues.LLM_TIMEOUT_MS || 60_000);
+const maxBodyBytes = Number(process.env.MAX_BODY_BYTES || envFileValues.MAX_BODY_BYTES || 1_200_000);
+
 const mime = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
-  '.svg': 'image/svg+xml'
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.svg': 'image/svg+xml',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.txt': 'text/plain; charset=utf-8'
 };
 
+const securityHeaders = {
+  'x-content-type-options': 'nosniff',
+  'referrer-policy': 'same-origin'
+};
+
+/** Erro cuja mensagem pode ser devolvida ao cliente. Os demais viram 500 generico. */
+class RequestError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.name = 'RequestError';
+    this.status = status;
+    this.expose = true;
+  }
+}
+
 function json(res, status, data) {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+  res.writeHead(status, { ...securityHeaders, 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(data, null, 2));
+}
+
+function assertAllowedLlmUrl(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL(String(rawUrl || ''));
+  } catch {
+    throw new RequestError('A URL da API precisa ser uma URL valida.');
+  }
+  const host = parsed.hostname.toLowerCase();
+  const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLoopback)) {
+    throw new RequestError('A URL da API precisa usar https:// (http:// so e aceito em localhost).');
+  }
+  if (!llmAllowedHosts.has(host)) {
+    throw new RequestError(`Host da LLM nao autorizado: ${host}. Libere em LLM_ALLOWED_HOSTS.`);
+  }
+  return parsed.toString();
 }
 
 function slugify(value) {
@@ -48,17 +111,23 @@ function slugify(value) {
     .replace(/^-+|-+$/g, '').slice(0, 72) || 'treinamento';
 }
 
-async function uniqueDeckFile(areaDir, title) {
+/**
+ * Grava o deck no primeiro slug livre. Usa flag 'wx' para que a checagem de
+ * existencia e a escrita sejam uma operacao so - duas geracoes simultaneas com o
+ * mesmo titulo nao podem mais receber a mesma versao e sobrescrever uma a outra.
+ */
+async function writeUniqueDeck(areaDir, title, html) {
   const base = slugify(title);
   for (let version = 1; version <= 999; version += 1) {
     const fileSlug = `${base}_v${version}.html`;
     try {
-      await stat(path.join(areaDir, fileSlug));
-    } catch {
+      await writeFile(path.join(areaDir, fileSlug), html, { flag: 'wx' });
       return { fileSlug, version: `v${version}` };
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
     }
   }
-  throw new Error('Limite de versões atingido para este treinamento.');
+  throw new RequestError('Limite de versões atingido para este treinamento.');
 }
 
 function esc(value) {
@@ -66,7 +135,20 @@ function esc(value) {
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+/** Aceita apenas escalares. Objetos e arrays viram o fallback em vez de "[object Object]". */
+function text(value, fallback = '') {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (typeof value === 'boolean') return String(value);
+  return fallback;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function comparableText(value) {
@@ -168,12 +250,39 @@ function inferOperationalBriefing(messages) {
 
 function normalizeBriefing(briefing = {}) {
   const clean = {};
-  for (const [key, value] of Object.entries(briefing)) {
+  for (const [key, value] of Object.entries(isPlainObject(briefing) ? briefing : {})) {
     const text = String(value ?? '').trim();
     if (!text) continue;
     clean[key] = key === 'description' ? dedupeLines(text) : text;
   }
   return clean;
+}
+
+const authWindowMs = 60_000;
+const authMaxAttempts = 10;
+const authAttempts = new Map();
+
+function clientIp(req) {
+  return req.socket?.remoteAddress || 'desconhecido';
+}
+
+function isAuthThrottled(req) {
+  const entry = authAttempts.get(clientIp(req));
+  if (!entry || Date.now() - entry.start > authWindowMs) return false;
+  return entry.count >= authMaxAttempts;
+}
+
+function recordAuthFailure(req) {
+  const ip = clientIp(req);
+  const now = Date.now();
+  const entry = authAttempts.get(ip);
+  if (!entry || now - entry.start > authWindowMs) authAttempts.set(ip, { start: now, count: 1 });
+  else entry.count += 1;
+  if (authAttempts.size > 5000) {
+    for (const [key, value] of authAttempts) {
+      if (now - value.start > authWindowMs) authAttempts.delete(key);
+    }
+  }
 }
 
 function hasValidGeneratorKey(req) {
@@ -185,19 +294,51 @@ function hasValidGeneratorKey(req) {
   return receivedBuffer.length === expectedBuffer.length && timingSafeEqual(receivedBuffer, expectedBuffer);
 }
 
+/**
+ * Valida a chave aplicando limite de tentativas por IP, para que os endpoints de
+ * autenticacao nao funcionem como oraculo de forca bruta.
+ */
+function checkGeneratorKey(req) {
+  if (!requireAuth) return { ok: true, status: 200 };
+  if (isAuthThrottled(req)) {
+    console.warn(`[auth] tentativas excessivas de ${clientIp(req)}`);
+    return { ok: false, status: 429, error: 'Muitas tentativas. Aguarde um minuto e tente novamente.' };
+  }
+  if (!hasValidGeneratorKey(req)) {
+    recordAuthFailure(req);
+    return { ok: false, status: 401, error: 'Chave de acesso invalida ou ausente.' };
+  }
+  authAttempts.delete(clientIp(req));
+  return { ok: true, status: 200 };
+}
+
 function requireGeneratorKey(req, res) {
-  if (hasValidGeneratorKey(req)) return true;
-  json(res, 401, { error: 'Chave de acesso invalida ou ausente.' });
+  const result = checkGeneratorKey(req);
+  if (result.ok) return true;
+  json(res, result.status, { error: result.error });
   return false;
 }
 
 async function readBody(req) {
-  let body = '';
+  const chunks = [];
+  let size = 0;
   for await (const chunk of req) {
-    body += chunk;
-    if (body.length > 1_200_000) throw new Error('Payload muito grande.');
+    size += chunk.length;
+    if (size > maxBodyBytes) {
+      req.destroy();
+      throw new RequestError('Payload muito grande.', 413);
+    }
+    chunks.push(chunk);
   }
-  return body ? JSON.parse(body) : {};
+  if (!size) return {};
+  let parsed;
+  try {
+    parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new RequestError('JSON invalido no corpo da requisição.');
+  }
+  if (!isPlainObject(parsed)) throw new RequestError('O corpo da requisição precisa ser um objeto JSON.');
+  return parsed;
 }
 
 async function readCatalog() {
@@ -225,38 +366,50 @@ function parseEnv(content) {
   }).filter(Boolean));
 }
 
-function serializeEnv(values) {
-  const ordered = [
-    'CATALOG_BASE_URL',
-    'GENERATOR_REQUIRE_AUTH',
-    'GENERATOR_API_KEY',
-    'LLM_ACTIVE_SLOT',
-    'LLM_MODEL',
-    'LLM_API_URL',
-    'LLM_API_KEY',
-    'OPENAI_API_KEY'
-  ];
-  for (let index = 1; index <= 5; index += 1) {
-    ordered.push(
-      `LLM_SLOT_${index}_LABEL`,
-      `LLM_SLOT_${index}_MODEL`,
-      `LLM_SLOT_${index}_API_URL`,
-      `LLM_SLOT_${index}_API_KEY`
-    );
+/**
+ * Reescreve o .env preservando comentarios, ordem e linhas em branco do arquivo
+ * original. Chaves novas sao acrescentadas no fim.
+ */
+function serializeEnv(values, originalContent = '') {
+  const remaining = new Map(Object.entries(values));
+  const output = [];
+  for (const line of String(originalContent || '').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) {
+      output.push(line);
+      continue;
+    }
+    const key = trimmed.slice(0, trimmed.indexOf('='));
+    if (!remaining.has(key)) continue;
+    output.push(`${key}=${remaining.get(key) ?? ''}`);
+    remaining.delete(key);
   }
-  const lines = [];
-  for (const key of ordered) {
-    if (Object.prototype.hasOwnProperty.call(values, key)) lines.push(`${key}=${values[key] ?? ''}`);
+  while (output.length && !output.at(-1).trim()) output.pop();
+  for (const [key, value] of remaining) output.push(`${key}=${value ?? ''}`);
+  return `${output.join('\n')}\n`;
+}
+
+/**
+ * Escreve em arquivo temporario e renomeia, para que uma queda no meio da escrita
+ * nao corrompa o .env (que guarda GENERATOR_API_KEY e impede o boot se invalido).
+ * Em container o .env costuma ser um bind mount de arquivo, onde rename falha -
+ * nesse caso cai para escrita direta.
+ */
+async function writeEnvFile(content) {
+  const tempPath = `${envPath}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tempPath, content);
+    await rename(tempPath, envPath);
+  } catch (error) {
+    await rm(tempPath, { force: true });
+    if (!['EBUSY', 'EXDEV', 'EPERM', 'ENOTEMPTY'].includes(error.code)) throw error;
+    await writeFile(envPath, content);
   }
-  for (const [key, value] of Object.entries(values)) {
-    if (!ordered.includes(key)) lines.push(`${key}=${value ?? ''}`);
-  }
-  return `${lines.join('\n')}\n`;
 }
 
 async function readLlmConfig() {
   const envValues = parseEnv(await readEnvFile());
-  const activeSlot = Number(process.env.LLM_ACTIVE_SLOT || envValues.LLM_ACTIVE_SLOT || 1);
+  const activeSlot = Number(envValues.LLM_ACTIVE_SLOT || process.env.LLM_ACTIVE_SLOT || 1);
   const slots = Array.from({ length: 5 }, (_, offset) => {
     const slot = offset + 1;
     const label = envValues[`LLM_SLOT_${slot}_LABEL`] || `API ${slot}`;
@@ -266,43 +419,74 @@ async function readLlmConfig() {
     return { slot, label, model, apiUrl, configured: Boolean(apiKey) };
   });
   const active = slots.find((item) => item.slot === activeSlot) || slots[0];
-  const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || envValues.LLM_API_KEY || envValues.OPENAI_API_KEY || envValues[`LLM_SLOT_${active.slot}_API_KEY`] || '';
+  const apiKey = envValues.LLM_API_KEY || envValues.OPENAI_API_KEY || envValues[`LLM_SLOT_${active.slot}_API_KEY`] || process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || '';
   return {
     activeSlot: active.slot,
     slots,
     configured: Boolean(apiKey),
-    model: process.env.LLM_MODEL || envValues.LLM_MODEL || active.model,
-    apiUrl: process.env.LLM_API_URL || envValues.LLM_API_URL || active.apiUrl
+    model: envValues.LLM_MODEL || active.model || process.env.LLM_MODEL || 'gpt-4.1-mini',
+    apiUrl: envValues.LLM_API_URL || active.apiUrl || process.env.LLM_API_URL || 'https://api.openai.com/v1/chat/completions'
   };
 }
 
 async function readLlmRuntimeConfig() {
   const envValues = parseEnv(await readEnvFile());
-  const activeSlot = Number(process.env.LLM_ACTIVE_SLOT || envValues.LLM_ACTIVE_SLOT || 1);
+  const activeSlot = Number(envValues.LLM_ACTIVE_SLOT || process.env.LLM_ACTIVE_SLOT || 1);
   return {
-    apiKey: process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || envValues.LLM_API_KEY || envValues.OPENAI_API_KEY || envValues[`LLM_SLOT_${activeSlot}_API_KEY`] || '',
-    model: process.env.LLM_MODEL || envValues.LLM_MODEL || envValues[`LLM_SLOT_${activeSlot}_MODEL`] || 'gpt-4.1-mini',
-    apiUrl: process.env.LLM_API_URL || envValues.LLM_API_URL || envValues[`LLM_SLOT_${activeSlot}_API_URL`] || 'https://api.openai.com/v1/chat/completions'
+    apiKey: envValues.LLM_API_KEY || envValues.OPENAI_API_KEY || envValues[`LLM_SLOT_${activeSlot}_API_KEY`] || process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || '',
+    model: envValues.LLM_MODEL || envValues[`LLM_SLOT_${activeSlot}_MODEL`] || process.env.LLM_MODEL || 'gpt-4.1-mini',
+    apiUrl: envValues.LLM_API_URL || envValues[`LLM_SLOT_${activeSlot}_API_URL`] || process.env.LLM_API_URL || 'https://api.openai.com/v1/chat/completions'
   };
 }
 
+function providerFromLlmConfig({ label = '', model = '', apiUrl = '' } = {}) {
+  const textValue = `${label} ${model} ${apiUrl}`.toLowerCase();
+  if (textValue.includes('deepseek')) return 'deepseek';
+  if (textValue.includes('openrouter')) return 'openrouter';
+  if (textValue.includes('groq')) return 'groq';
+  if (textValue.includes('mistral')) return 'mistral';
+  if (textValue.includes('anthropic') || textValue.includes('claude')) return 'anthropic';
+  if (textValue.includes('gemini') || textValue.includes('google')) return 'google';
+  if (textValue.includes('openai') || textValue.includes('gpt-')) return 'openai';
+  return '';
+}
+
+function assertConsistentLlmProvider({ label, model, apiUrl }) {
+  const provider = providerFromLlmConfig({ label, model });
+  if (!provider) return;
+  const urlHost = new URL(apiUrl).hostname.toLowerCase();
+  const expectedHosts = {
+    deepseek: ['deepseek.com'],
+    openrouter: ['openrouter.ai'],
+    groq: ['groq.com'],
+    mistral: ['mistral.ai'],
+    anthropic: ['anthropic.com'],
+    google: ['googleapis.com'],
+    openai: ['openai.com']
+  };
+  const allowed = expectedHosts[provider] || [];
+  if (allowed.length && !allowed.some((host) => urlHost === host || urlHost.endsWith(`.${host}`))) {
+    throw new RequestError(`Modelo/provedor ${provider} nao combina com a URL ${urlHost}. Ajuste a URL da API antes de salvar.`);
+  }
+}
+
 async function saveLlmConfig(input) {
-  const slot = Math.min(5, Math.max(1, Number(input.slot || 1)));
-  const label = String(input.label || `API ${slot}`).trim() || `API ${slot}`;
-  const envValues = parseEnv(await readEnvFile());
+  const slotNumber = Number(input.slot);
+  const slot = Number.isFinite(slotNumber) ? Math.min(5, Math.max(1, Math.trunc(slotNumber))) : 1;
+  const label = text(input.label) || `API ${slot}`;
+  const originalContent = await readEnvFile();
+  const envValues = parseEnv(originalContent);
   const existingKey = envValues[`LLM_SLOT_${slot}_API_KEY`] || '';
-  const apiKey = String(input.apiKey || '').trim() || existingKey;
-  const model = String(input.model || 'gpt-4.1-mini').trim();
-  const apiUrl = String(input.apiUrl || 'https://api.openai.com/v1/chat/completions').trim();
-  if (!apiKey) throw new Error('Informe a chave da LLM.');
-  if (!model) throw new Error('Informe o modelo da LLM.');
-  if (!/^https?:\/\//i.test(apiUrl)) throw new Error('A URL da API precisa iniciar com http:// ou https://.');
+  const apiKey = text(input.apiKey) || existingKey;
+  const model = text(input.model) || 'gpt-4.1-mini';
+  const apiUrl = assertAllowedLlmUrl(text(input.apiUrl) || 'https://api.openai.com/v1/chat/completions');
+  if (!apiKey) throw new RequestError('Informe a chave da LLM.');
+  assertConsistentLlmProvider({ label, model, apiUrl });
 
   const values = {
     ...envValues,
     LLM_ACTIVE_SLOT: String(slot),
     LLM_API_KEY: apiKey,
-    OPENAI_API_KEY: '',
     LLM_MODEL: model,
     LLM_API_URL: apiUrl,
     [`LLM_SLOT_${slot}_LABEL`]: label,
@@ -310,33 +494,85 @@ async function saveLlmConfig(input) {
     [`LLM_SLOT_${slot}_MODEL`]: model,
     [`LLM_SLOT_${slot}_API_URL`]: apiUrl
   };
-  await writeFile(envPath, serializeEnv(values));
+  await writeEnvFile(serializeEnv(values, originalContent));
   envFileValues = values;
   process.env.LLM_ACTIVE_SLOT = String(slot);
   process.env.LLM_API_KEY = apiKey;
-  process.env.OPENAI_API_KEY = '';
   process.env.LLM_MODEL = model;
   process.env.LLM_API_URL = apiUrl;
   return readLlmConfig();
 }
 
-async function writeCatalog(entry) {
-  const catalog = await readCatalog();
-  const existing = catalog.trainings.filter((item) => item.file !== entry.file);
-  catalog.trainings = [...existing, entry].sort((a, b) => a.area.localeCompare(b.area) || a.title.localeCompare(b.title));
-  await writeFile(catalogPath, JSON.stringify(catalog, null, 2) + '\n');
+function llmModelsUrl(apiUrl) {
+  const parsed = new URL(assertAllowedLlmUrl(apiUrl));
+  const parts = parsed.pathname.split('/').filter(Boolean);
+  const versionIndex = parts.findIndex((part) => /^v\d+$/i.test(part));
+  const chatIndex = parts.findIndex((part) => /^(chat|messages|completions)$/i.test(part));
+  const baseParts = versionIndex >= 0
+    ? parts.slice(0, versionIndex + 1)
+    : parts.slice(0, Math.max(0, chatIndex));
+  parsed.pathname = `/${[...baseParts, 'models'].join('/')}`;
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString();
 }
 
-function fallbackPlan(input) {
-  const title = input.title?.trim() || input.theme?.trim() || 'Novo Treinamento';
-  const area = input.area?.trim() || input.operationType?.trim() || 'geral';
-  const audience = input.audience?.trim() || 'operação interna';
-  const objective = input.objective?.trim() || 'Padronizar conhecimento e orientar a execução.';
-  const kpiTarget = input.kpiTarget?.trim() || 'Indicador operacional definido no briefing';
-  const operationalPain = input.operationalPain?.trim() || 'Necessidade de padronizar a execução';
-  const behaviorChange = input.behaviorChange?.trim() || 'Aplicar o processo com mais clareza, consistência e responsabilidade.';
-  const learningEvidence = input.learningEvidence?.trim() || input.evaluation?.trim() || 'Checagem final de entendimento';
-  const raw = input.description?.trim() || '';
+async function listLlmModels(input = {}) {
+  const envValues = parseEnv(await readEnvFile());
+  const slotNumber = Number(input.slot);
+  const slot = Number.isFinite(slotNumber) ? Math.min(5, Math.max(1, Math.trunc(slotNumber))) : Number(envValues.LLM_ACTIVE_SLOT || 1);
+  const apiUrl = text(input.apiUrl) || envValues[`LLM_SLOT_${slot}_API_URL`] || envValues.LLM_API_URL || 'https://api.openai.com/v1/chat/completions';
+  const apiKey = text(input.apiKey)
+    || envValues[`LLM_SLOT_${slot}_API_KEY`]
+    || envValues.LLM_API_KEY
+    || envValues.OPENAI_API_KEY
+    || '';
+  if (!apiKey) throw new RequestError('Informe a chave da API para carregar os modelos.');
+  const modelsUrl = llmModelsUrl(apiUrl);
+  const response = await fetch(modelsUrl, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(Math.min(llmTimeoutMs, 20_000))
+  });
+  if (!response.ok) throw new RequestError(`Nao foi possivel carregar modelos. A API respondeu HTTP ${response.status}.`, 502);
+  const payload = await response.json();
+  const models = Array.isArray(payload.data)
+    ? payload.data.map((item) => text(item.id)).filter(Boolean)
+    : [];
+  return { modelsUrl, models: [...new Set(models)].sort((a, b) => a.localeCompare(b)) };
+}
+
+// Fila serial para o catalogo: ler-alterar-gravar sem lock perdia entradas quando
+// duas geracoes rodavam ao mesmo tempo.
+let catalogQueue = Promise.resolve();
+
+function withCatalogLock(task) {
+  const run = catalogQueue.then(task, task);
+  catalogQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+async function writeCatalog(entry) {
+  return withCatalogLock(async () => {
+    const catalog = await readCatalog();
+    const trainings = Array.isArray(catalog.trainings) ? catalog.trainings : [];
+    const existing = trainings.filter((item) => item.file !== entry.file);
+    catalog.trainings = [...existing, entry].sort((a, b) => a.area.localeCompare(b.area) || a.title.localeCompare(b.title));
+    await writeFile(catalogPath, JSON.stringify(catalog, null, 2) + '\n');
+  });
+}
+
+function fallbackPlan(rawInput) {
+  const input = isPlainObject(rawInput) ? rawInput : {};
+  const title = text(input.title) || text(input.theme) || 'Novo Treinamento';
+  const area = text(input.area) || text(input.operationType) || 'geral';
+  const audience = text(input.audience) || 'operação interna';
+  const objective = text(input.objective) || 'Padronizar conhecimento e orientar a execução.';
+  const kpiTarget = text(input.kpiTarget) || 'Indicador operacional definido no briefing';
+  const operationalPain = text(input.operationalPain) || 'Necessidade de padronizar a execução';
+  const behaviorChange = text(input.behaviorChange) || 'Aplicar o processo com mais clareza, consistência e responsabilidade.';
+  const learningEvidence = text(input.learningEvidence) || text(input.evaluation) || 'Checagem final de entendimento';
+  const raw = text(input.description);
   const topics = raw.split(/\n+/)
     .map((line) => line.replace(/^[-*\d. )]+/, '').trim())
     .filter((line) => line && !briefingLabelPattern.test(line))
@@ -358,7 +594,7 @@ function fallbackPlan(input) {
     area,
     subtitle: `Treinamento para ${audience}`,
     objective,
-    operationType: input.operationType || area,
+    operationType: text(input.operationType) || area,
     kpiTarget,
     operationalPain,
     behaviorChange,
@@ -390,32 +626,44 @@ function fallbackPlan(input) {
   });
 }
 
-async function llmPlan(input) {
-  const { apiKey, apiUrl, model } = await readLlmRuntimeConfig();
-  if (!apiKey) return { plan: fallbackPlan(input), mode: 'fallback', warning: 'LLM_API_KEY/OPENAI_API_KEY nao configurada.' };
-
-  const schemaInstruction = `Responda apenas JSON valido, sem markdown. Schema:
+const planSchemaInstruction = `Responda apenas JSON valido, sem markdown. Schema:
 {"title":"string","area":"string","subtitle":"string","objective":"string","operationType":"string","kpiTarget":"string","operationalPain":"string","behaviorChange":"string","learningEvidence":"string","slides":[{"type":"cover|cards|checklist|flow|table|closing","title":"string","subtitle":"string","lead":"string","items":[{"icon":"fa-name","title":"string","text":"string"}],"rows":[["col1","col2"]]}]}`;
 
-  const payload = {
-    model,
-    temperature: 0.35,
-    messages: [
-      { role: 'system', content: `Voce cria roteiros de treinamentos corporativos em pt-BR para decks HTML da 3F Contact Center. Para temas de contact center, conecte o conteudo a tipo de operacao, KPI, dor operacional, comportamento esperado, pratica e evidencia de aprendizado. ${schemaInstruction}` },
-      { role: 'user', content: JSON.stringify(input, null, 2) }
-    ]
-  };
+/**
+ * Unico ponto de saida para a LLM: valida o host, aplica timeout e nao propaga o
+ * corpo da resposta de erro do provedor (que pode ecoar dados da requisicao).
+ */
+async function llmFetch({ apiKey, apiUrl, model }, { system, user, temperature }) {
+  const url = assertAllowedLlmUrl(apiUrl);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      temperature,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: JSON.stringify(user, null, 2) }
+      ]
+    }),
+    signal: AbortSignal.timeout(llmTimeoutMs)
+  });
+  if (!response.ok) throw new Error(`LLM respondeu HTTP ${response.status}.`);
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '';
+  return JSON.parse(content.replace(/^```json\s*|\s*```$/g, ''));
+}
+
+async function llmPlan(input) {
+  const runtime = await readLlmRuntimeConfig();
+  if (!runtime.apiKey) return { plan: fallbackPlan(input), mode: 'fallback', warning: 'LLM_API_KEY/OPENAI_API_KEY nao configurada.' };
 
   try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify(payload)
+    const parsed = await llmFetch(runtime, {
+      temperature: 0.35,
+      system: `Voce cria roteiros de treinamentos corporativos em pt-BR para decks HTML da 3F Contact Center. Para temas de contact center, conecte o conteudo a tipo de operacao, KPI, dor operacional, comportamento esperado, pratica e evidencia de aprendizado. ${planSchemaInstruction}`,
+      user: input
     });
-    if (!response.ok) throw new Error(`LLM HTTP ${response.status}: ${await response.text()}`);
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
-    const parsed = JSON.parse(content.replace(/^```json\s*|\s*```$/g, ''));
     return { plan: normalizePlan(parsed), mode: 'llm' };
   } catch (error) {
     return { plan: fallbackPlan(input), mode: 'fallback', warning: `Falha na LLM: ${error.message}` };
@@ -450,7 +698,10 @@ function withSlideLimit(plan, target) {
     ...body.filter((slide) => !priority.some((title) => comparableText(slide.title) === comparableText(title)))
   ];
   const middle = ordered.slice(0, Math.max(1, target - 2));
-  return normalizePlan({ ...plan, slides: [cover, ...middle, closing] });
+  // cover e closing podem ser o mesmo objeto num plano de slide unico; o filter
+  // remove a duplicata em vez de renderizar o slide duas vezes.
+  const kept = [cover, ...middle, closing].filter((slide, index, list) => slide && list.indexOf(slide) === index);
+  return normalizePlan({ ...plan, slides: kept });
 }
 
 function hasSlide(plan, title) {
@@ -458,12 +709,16 @@ function hasSlide(plan, title) {
 }
 
 function addRevisionSlides(plan, instruction, briefing = {}) {
-  const text = comparableText(instruction);
+  const wanted = comparableText(instruction);
   const slides = [...plan.slides];
-  const closingIndex = Math.max(0, slides.findIndex((slide) => slide.type === 'closing'));
+  // Sem Math.max: quando nao existe slide de encerramento, os slides novos vao
+  // para o fim, e nao para antes da capa.
+  const closingIndex = slides.findIndex((slide) => slide.type === 'closing');
   const insertAt = closingIndex === -1 ? slides.length : closingIndex;
 
-  if (/(dinamica|atividade|simulacao|simulação|roleplay|pratica|prática)/i.test(instruction) && !hasSlide(plan, 'Atividade prática')) {
+  // Os testes rodam sobre `wanted` (sem acento e minusculo). Testar o `instruction`
+  // cru fazia "dinâmica" nao casar com a alternativa "dinamica" da lista.
+  if (/(dinamica|atividade|simulacao|roleplay|pratica)/.test(wanted) && !hasSlide(plan, 'Atividade prática')) {
     slides.splice(insertAt, 0, {
       type: 'cards',
       title: 'Atividade prática',
@@ -476,7 +731,7 @@ function addRevisionSlides(plan, instruction, briefing = {}) {
     });
   }
 
-  if (/(avaliacao|avaliação|quiz|prova|checagem|certifica)/i.test(instruction) && !hasSlide(plan, 'Avaliação final')) {
+  if (/(avaliacao|quiz|prova|checagem|certifica)/.test(wanted) && !hasSlide(plan, 'Avaliação final')) {
     slides.splice(Math.min(insertAt + 1, slides.length), 0, {
       type: 'checklist',
       title: 'Avaliação final',
@@ -489,7 +744,7 @@ function addRevisionSlides(plan, instruction, briefing = {}) {
     });
   }
 
-  if (/exemplo|caso|cenario|cenário/i.test(instruction) && !hasSlide(plan, 'Exemplo da operação')) {
+  if (/exemplo|caso|cenario/.test(wanted) && !hasSlide(plan, 'Exemplo da operação')) {
     slides.splice(insertAt, 0, {
       type: 'cards',
       title: 'Exemplo da operação',
@@ -503,7 +758,7 @@ function addRevisionSlides(plan, instruction, briefing = {}) {
   }
 
   const revised = normalizePlan({ ...plan, slides });
-  if (text.includes('pratico') || text.includes('pratica') || text.includes('operador')) {
+  if (wanted.includes('pratico') || wanted.includes('pratica') || wanted.includes('operador')) {
     revised.slides = revised.slides.map((slide) => slide.type === 'cover' ? slide : {
       ...slide,
       lead: slide.lead || 'Foque no que deve ser feito na rotina.',
@@ -518,13 +773,13 @@ function addRevisionSlides(plan, instruction, briefing = {}) {
 
 function fallbackRevisePlan(plan, instruction, briefing = {}) {
   let revised = normalizePlan(plan || fallbackPlan(briefing));
-  const text = comparableText(instruction);
+  const wanted = comparableText(instruction);
   const target = requestedSlideCount(instruction);
 
   revised = addRevisionSlides(revised, instruction, briefing);
   if (target) revised = withSlideLimit(revised, target);
 
-  if (text.includes('tom') || text.includes('lideranca') || text.includes('liderança') || text.includes('gestor')) {
+  if (wanted.includes('tom') || wanted.includes('lideranca') || wanted.includes('gestor')) {
     revised.subtitle = revised.subtitle || 'Versão revisada para aplicação com liderança';
     revised.slides = revised.slides.map((slide) => slide.type === 'cover' ? slide : {
       ...slide,
@@ -536,34 +791,30 @@ function fallbackRevisePlan(plan, instruction, briefing = {}) {
 }
 
 async function llmRevisePlan(input) {
-  const { apiKey, apiUrl, model } = await readLlmRuntimeConfig();
-  const fallback = fallbackRevisePlan(input.plan, input.instruction, input.briefing || {});
-  if (!apiKey) return { plan: fallback, mode: 'fallback', warning: 'LLM_API_KEY/OPENAI_API_KEY nao configurada.' };
-
-  const schemaInstruction = `Responda apenas JSON valido, sem markdown. Schema:
-{"title":"string","area":"string","subtitle":"string","objective":"string","operationType":"string","kpiTarget":"string","operationalPain":"string","behaviorChange":"string","learningEvidence":"string","slides":[{"type":"cover|cards|checklist|flow|table|closing","title":"string","subtitle":"string","lead":"string","items":[{"icon":"fa-name","title":"string","text":"string"}],"rows":[["col1","col2"]]}]}`;
-
+  const runtime = await readLlmRuntimeConfig();
+  // fallbackRevisePlan roda sobre um plan vindo do cliente; se ele lancar aqui
+  // fora, o erro escapa ate o handler global. Fica dentro do try.
   try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        temperature: 0.25,
-        messages: [
-          { role: 'system', content: `Voce revisa roteiros de treinamentos 3F em pt-BR. Preserve o template, mantenha uma ideia principal por slide, respeite o pedido do usuario e nao reinicie o briefing. ${schemaInstruction}` },
-          { role: 'user', content: JSON.stringify(input, null, 2) }
-        ]
-      })
+    if (!runtime.apiKey) {
+      return {
+        plan: fallbackRevisePlan(input.plan, input.instruction, input.briefing || {}),
+        mode: 'fallback',
+        warning: 'LLM_API_KEY/OPENAI_API_KEY nao configurada.'
+      };
+    }
+    const parsed = await llmFetch(runtime, {
+      temperature: 0.25,
+      system: `Voce revisa roteiros de treinamentos 3F em pt-BR. Preserve o template, mantenha uma ideia principal por slide, respeite o pedido do usuario e nao reinicie o briefing. ${planSchemaInstruction}`,
+      user: input
     });
-    if (!response.ok) throw new Error(`LLM HTTP ${response.status}: ${await response.text()}`);
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
-    const parsed = JSON.parse(content.replace(/^```json\s*|\s*```$/g, ''));
     const revised = addRevisionSlides(normalizePlan(parsed), input.instruction, input.briefing || {});
     return { plan: withSlideLimit(revised, requestedSlideCount(input.instruction)), mode: 'llm' };
   } catch (error) {
-    return { plan: fallback, mode: 'fallback', warning: `Falha na LLM: ${error.message}` };
+    return {
+      plan: fallbackRevisePlan(input.plan, input.instruction, input.briefing || {}),
+      mode: 'fallback',
+      warning: `Falha na LLM: ${error.message}`
+    };
   }
 }
 
@@ -657,10 +908,14 @@ function localChatReply(messages, briefing) {
 }
 
 async function chatWithAssistant(input) {
-  const messages = Array.isArray(input.messages) ? input.messages.slice(-20) : [];
-  const briefing = extractBriefingFromMessages(messages, input.briefing || {});
+  const messages = (Array.isArray(input.messages) ? input.messages : [])
+    .filter(isPlainObject)
+    .map((message) => ({ role: text(message.role), content: text(message.content) }))
+    .slice(-20);
+  const briefing = extractBriefingFromMessages(messages, isPlainObject(input.briefing) ? input.briefing : {});
   const draftPlan = fallbackPlan(briefing);
-  const { apiKey, apiUrl, model } = await readLlmRuntimeConfig();
+  const runtime = await readLlmRuntimeConfig();
+  const { apiKey } = runtime;
 
   if (!apiKey) {
     return {
@@ -679,28 +934,18 @@ Responda apenas JSON valido com este schema:
 Nao gere HTML. Nao invente dados especificos quando faltar contexto; faca perguntas objetivas. Para temas de contact center, classifique tipo de operacao, KPI impactado, dor operacional e comportamento esperado quando o usuario fornecer sinais suficientes.`;
 
   try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        temperature: 0.35,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: JSON.stringify({ briefing, messages }, null, 2) }
-        ]
-      })
+    const parsed = await llmFetch(runtime, {
+      temperature: 0.35,
+      system,
+      user: { briefing, messages }
     });
-    if (!response.ok) throw new Error(`LLM HTTP ${response.status}: ${await response.text()}`);
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
-    const parsed = JSON.parse(content.replace(/^```json\s*|\s*```$/g, ''));
-    const mergedBriefing = normalizeBriefing({ ...briefing, ...inferOperationalBriefing(messages), ...(parsed.briefing || {}) });
+    const parsedBriefing = isPlainObject(parsed) && isPlainObject(parsed.briefing) ? parsed.briefing : {};
+    const mergedBriefing = normalizeBriefing({ ...briefing, ...inferOperationalBriefing(messages), ...parsedBriefing });
     return {
       mode: 'llm',
       briefing: mergedBriefing,
       draftPlan: fallbackPlan(mergedBriefing),
-      reply: parsed.reply || localChatReply(messages, mergedBriefing)
+      reply: text(parsed?.reply) || localChatReply(messages, mergedBriefing)
     };
   } catch (error) {
     return {
@@ -713,38 +958,59 @@ Nao gere HTML. Nao invente dados especificos quando faltar contexto; faca pergun
   }
 }
 
+const slideTypes = ['cover', 'cards', 'checklist', 'flow', 'table', 'closing'];
+
+/**
+ * Normaliza um slide vindo da LLM ou do cliente. Cada elemento e validado, nao
+ * so o array que o contem: `slides:[null]` ou `rows:["a","b"]` chegavam ate o
+ * render e derrubavam a requisicao.
+ */
+function normalizeSlide(slide) {
+  const source = isPlainObject(slide) ? slide : {};
+  return {
+    type: slideTypes.includes(source.type) ? source.type : 'cards',
+    title: text(source.title) || 'Slide',
+    subtitle: text(source.subtitle),
+    lead: text(source.lead),
+    items: (Array.isArray(source.items) ? source.items : []).slice(0, 6).map((item) => {
+      const entry = isPlainObject(item) ? item : {};
+      return {
+        icon: (text(entry.icon) || 'fa-circle-check').replace(/^fas\s+/, ''),
+        title: text(entry.title) || text(entry.titulo) || 'Ponto',
+        text: text(entry.text) || text(entry.texto)
+      };
+    }),
+    rows: (Array.isArray(source.rows) ? source.rows : [])
+      .slice(0, 8)
+      .map((row) => (Array.isArray(row) ? row : [row]).slice(0, 8).map((cell) => text(cell)))
+  };
+}
+
+function emptySlide(type, title, subtitle) {
+  return { type, title, subtitle, lead: '', items: [], rows: [] };
+}
+
 function normalizePlan(plan) {
-  const title = String(plan.title || plan.titulo || 'Novo Treinamento').trim();
-  const area = String(plan.area || 'geral').trim();
-  const slides = Array.isArray(plan.slides) ? plan.slides : [];
-  const normalized = slides.map((slide) => ({
-    type: ['cover', 'cards', 'checklist', 'flow', 'table', 'closing'].includes(slide.type) ? slide.type : 'cards',
-    title: String(slide.title || 'Slide').trim(),
-    subtitle: String(slide.subtitle || '').trim(),
-    lead: String(slide.lead || '').trim(),
-    items: Array.isArray(slide.items) ? slide.items.slice(0, 6).map((item) => ({
-      icon: String(item.icon || 'fa-circle-check').replace(/^fas\s+/, ''),
-      title: String(item.title || item.titulo || 'Ponto').trim(),
-      text: String(item.text || item.texto || '').trim()
-    })) : [],
-    rows: Array.isArray(slide.rows) ? slide.rows.slice(0, 8) : []
-  }));
+  const source = isPlainObject(plan) ? plan : {};
+  const title = text(source.title) || text(source.titulo) || 'Novo Treinamento';
+  const area = text(source.area) || 'geral';
+  const normalized = (Array.isArray(source.slides) ? source.slides : []).map(normalizeSlide);
   if (!normalized.length || normalized[0].type !== 'cover') {
-    normalized.unshift({ type: 'cover', title, subtitle: plan.objective || plan.subtitle || '', lead: '', items: [], rows: [] });
+    normalized.unshift(emptySlide('cover', title, text(source.objective) || text(source.subtitle)));
   }
   if (normalized.at(-1)?.type !== 'closing') {
-    normalized.push({ type: 'closing', title: 'Encerramento', subtitle: 'Obrigado pela participação.', lead: '', items: [], rows: [] });
+    normalized.push(emptySlide('closing', 'Encerramento', 'Obrigado pela participação.'));
   }
   return {
     title,
     area,
-    subtitle: String(plan.subtitle || '').trim(),
-    objective: String(plan.objective || '').trim(),
-    operationType: String(plan.operationType || '').trim(),
-    kpiTarget: String(plan.kpiTarget || '').trim(),
-    operationalPain: String(plan.operationalPain || '').trim(),
-    behaviorChange: String(plan.behaviorChange || '').trim(),
-    learningEvidence: String(plan.learningEvidence || '').trim(),
+    subtitle: text(source.subtitle),
+    objective: text(source.objective),
+    operationType: text(source.operationType),
+    kpiTarget: text(source.kpiTarget),
+    operationalPain: text(source.operationalPain),
+    behaviorChange: text(source.behaviorChange),
+    learningEvidence: text(source.learningEvidence),
     slides: normalized.slice(0, 24)
   };
 }
@@ -825,7 +1091,7 @@ function renderDeck(plan) {
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <script>window.TRAINING_CONFIG={assets:{logo3f:'../../_assets/logos/Logo_horizontal_branca.png',logo3fLight:'../../_assets/logos/Logo_horizontal_Azul.png',logo3fVertical:'../../_assets/logos/Logo_vertical_branca.png',logo3fVerticalLight:'../../_assets/logos/Logo_vertical_azul.png'}};</script>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}:root{--primary:#003467;--secondary:#003D38;--accent:#F0C55A;--light:#5E88C1;--dark:#04101d;--card:rgba(8,20,40,.72);--border:rgba(94,136,193,.22)}body{font-family:'Montserrat',sans-serif;background:#020B16;color:white;overflow:hidden;height:100vh}body:before{content:'';position:fixed;inset:0;background:radial-gradient(circle at top right,rgba(94,136,193,.18),transparent 35%),radial-gradient(circle at bottom left,rgba(240,197,90,.08),transparent 25%),linear-gradient(135deg,#010B15,#021325,#00152A);z-index:-2}body:after{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);background-size:28px 28px;opacity:.35;z-index:-1}.sidebar{position:fixed;left:0;top:0;width:260px;height:100vh;background:rgba(0,0,0,.28);backdrop-filter:blur(18px);border-right:1px solid rgba(255,255,255,.06);padding:28px 20px;z-index:100;overflow-y:auto;transition:width .28s ease,padding .28s ease}.sidebar-collapse-btn{width:34px;height:34px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:var(--accent);cursor:pointer;display:grid;place-items:center;transition:.25s}.sidebar-collapse-btn:hover{background:rgba(240,197,90,.12);border-color:rgba(240,197,90,.3)}.logo{margin-bottom:25px}.logo img{width:180px;object-fit:contain;transition:width .28s ease}.logo .logo-compact{display:none}.training-title{font-family:'Orbitron',sans-serif;font-size:24px;font-weight:800;line-height:1.2;color:var(--accent);margin-bottom:10px;text-transform:uppercase}.training-subtitle{font-size:13px;line-height:1.6;color:#C4D7F3;margin-bottom:26px}.menu-title{font-size:12px;letter-spacing:0;text-transform:uppercase;color:#7F9BC0;margin-bottom:14px}.menu{display:flex;flex-direction:column;gap:9px}.menu-item{display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:14px;background:rgba(255,255,255,.02);border:1px solid transparent;cursor:pointer;transition:.35s}.menu-item:hover,.menu-item.active{background:rgba(94,136,193,.12);border-color:rgba(94,136,193,.25);transform:translateX(4px)}.menu-item i{width:20px;text-align:center;color:var(--accent)}.menu-item strong{display:block;font-size:14px;font-weight:600}.menu-item span{font-size:11px;color:#B4C7E7}.progress-card{margin-top:24px;padding:18px;border-radius:18px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)}.progress-card h4{font-size:12px;margin-bottom:12px;color:#B4C7E7}.progress-bar,.top-progress .bar{height:8px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden}.progress-fill,.bar-fill{height:100%;width:0;background:linear-gradient(90deg,var(--accent),#FFE082);transition:.4s}.progress-info{margin-top:10px;display:flex;justify-content:space-between;font-size:12px}.main{margin-left:260px;height:100vh;position:relative;overflow:hidden;transition:margin-left .28s ease}.topbar{position:fixed;left:260px;right:0;top:0;height:68px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;background:rgba(0,0,0,.15);backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,.05);z-index:99;transition:left .28s ease}.top-progress{width:50%}.top-progress-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}.top-progress span{font-size:12px;color:#C8D8F2;display:block;margin-bottom:10px}.top-progress-head span{margin-bottom:0}.top-actions{display:flex;justify-content:flex-end;gap:10px}.action-btn{padding:8px 13px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:white;text-decoration:none;cursor:pointer;font-size:13px;line-height:1;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:8px}.action-btn:hover{background:rgba(240,197,90,.12);border-color:rgba(240,197,90,.2)}body.sidebar-collapsed .sidebar{width:78px;padding:28px 12px;overflow:hidden}body.sidebar-collapsed .sidebar-collapse-btn i{transform:rotate(180deg)}body.sidebar-collapsed .logo{margin-top:0;margin-bottom:24px}body.sidebar-collapsed .logo .logo-wide{display:none}body.sidebar-collapsed .logo .logo-compact{display:block;width:42px;margin:0 auto}body.sidebar-collapsed .training-title,body.sidebar-collapsed .training-subtitle,body.sidebar-collapsed .menu-title,body.sidebar-collapsed .progress-card,body.sidebar-collapsed .menu-item strong,body.sidebar-collapsed .menu-item span{display:none}body.sidebar-collapsed .menu-item{width:46px;height:46px;display:flex;align-items:center;justify-content:center;gap:0;padding:0;border-radius:14px;margin:0 auto}body.sidebar-collapsed .menu-item i{width:22px;height:22px;min-width:0;margin:0;display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;text-align:center}body.sidebar-collapsed .menu-item i:before{display:block;width:1em;text-align:center}body.sidebar-collapsed .menu-item:hover,body.sidebar-collapsed .menu-item.active{transform:none}body.sidebar-collapsed .main{margin-left:78px}body.sidebar-collapsed .topbar,body.sidebar-collapsed .slide-footer{left:78px}.slides{height:100vh;position:relative}.slide{position:absolute;inset:0;padding:88px 48px 72px;overflow-y:auto;opacity:0;transform:translateX(40px);transition:.45s ease}.slide.active{opacity:1;transform:translateX(0);z-index:2}.badge{display:inline-flex;align-items:center;gap:10px;padding:10px 16px;border-radius:999px;background:rgba(94,136,193,.12);border:1px solid rgba(94,136,193,.28);color:#C4D7F3;font-size:14px;font-weight:600;margin-bottom:18px}.badge i{color:var(--accent)}h1,h2{font-family:'Orbitron',sans-serif;text-transform:uppercase;line-height:1.08;letter-spacing:0}h2{font-size:clamp(30px,4.2vw,64px);margin-bottom:22px}.gradient-title{background:linear-gradient(90deg,#fff,#F0C55A);-webkit-background-clip:text;-webkit-text-fill-color:transparent}.lead{font-size:18px;line-height:1.7;color:#C4D7F3;max-width:900px;margin-bottom:26px}.capa-layout{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:18px}.capa-eyebrow{color:#C4D7F3;letter-spacing:0;text-transform:uppercase;font-size:14px}.capa-title{font-size:clamp(34px,6vw,76px)}.capa-subtitle{font-size:clamp(18px,2vw,28px);color:#C4D7F3}.capa-divider{width:120px;height:4px;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--light));margin:6px auto}.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.card{position:relative;padding:24px;border-radius:18px;background:var(--card);border:1px solid var(--border);overflow:hidden}.card:before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--accent),var(--light))}.card i{font-size:28px;color:var(--accent);margin-bottom:16px}.card h3{font-size:20px;margin-bottom:10px}.card p{font-size:15px;line-height:1.6;color:#C4D7F3}.big-check{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}.big-check-item{display:flex;align-items:center;gap:14px;padding:20px;border-radius:18px;background:var(--card);border:1px solid var(--border);font-size:18px}.big-check-item i{color:#74FF9F}.flow-steps{display:flex;align-items:stretch;gap:14px;flex-wrap:wrap}.flow-step{flex:1;min-width:160px;padding:20px;border-radius:18px;background:var(--card);border:1px solid var(--border);text-align:center}.step-num{font-family:'Orbitron';color:var(--accent);font-size:13px}.step-icon{font-size:26px;color:var(--accent);margin:12px}.step-label{font-weight:700}.flow-arrow{display:flex;align-items:center;color:var(--accent)}.simple-table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:18px;overflow:hidden}.simple-table td{padding:16px;border-bottom:1px solid var(--border);font-size:15px}.slide-footer{position:fixed;left:260px;right:0;bottom:0;height:60px;display:flex;align-items:center;justify-content:center;gap:30px;padding:0 55px;background:linear-gradient(to top,rgba(2,11,22,.95) 60%,transparent);z-index:90;pointer-events:none;transition:left .28s ease}.slide-footer:before,.slide-footer:after{content:'';height:1px;flex:1;background:linear-gradient(90deg,transparent,rgba(240,197,90,.3))}.slide-footer img{width:160px;opacity:.85}#drawCanvas{position:fixed;inset:0;z-index:85;pointer-events:none}@media(max-width:980px){.sidebar{left:-270px;transition:.3s}.sidebar.open{left:0}.main{margin-left:0}.topbar{left:0}.slide-footer{left:0;padding:0 24px}.grid-3,.big-check{grid-template-columns:1fr}.slide{padding:88px 22px 72px}.btn-label{display:none}body.sidebar-collapsed .sidebar{width:260px;padding:28px 20px}body.sidebar-collapsed .main{margin-left:0}body.sidebar-collapsed .topbar,body.sidebar-collapsed .slide-footer{left:0}body.sidebar-collapsed .logo{margin-top:0;margin-bottom:25px}body.sidebar-collapsed .logo img{width:180px}body.sidebar-collapsed .logo .logo-wide{display:block}body.sidebar-collapsed .logo .logo-compact{display:none}body.sidebar-collapsed .training-title,body.sidebar-collapsed .training-subtitle,body.sidebar-collapsed .menu-title,body.sidebar-collapsed .progress-card,body.sidebar-collapsed .menu-item strong,body.sidebar-collapsed .menu-item span{display:block}}
+*{margin:0;padding:0;box-sizing:border-box}:root{--primary:#003467;--secondary:#003D38;--accent:#F0C55A;--light:#5E88C1;--dark:#04101d;--card:rgba(8,20,40,.72);--border:rgba(94,136,193,.22)}body{font-family:'Montserrat',sans-serif;background:#020B16;color:white;overflow:hidden;height:100vh}body:before{content:'';position:fixed;inset:0;background:radial-gradient(circle at top right,rgba(94,136,193,.18),transparent 35%),radial-gradient(circle at bottom left,rgba(240,197,90,.08),transparent 25%),linear-gradient(135deg,#010B15,#021325,#00152A);z-index:-2}body:after{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);background-size:28px 28px;opacity:.35;z-index:-1}.sidebar{position:fixed;left:0;top:0;width:260px;height:100vh;background:rgba(0,0,0,.28);backdrop-filter:blur(18px);border-right:1px solid rgba(255,255,255,.06);padding:28px 20px;z-index:100;overflow-y:auto;transition:width .28s ease,padding .28s ease}.sidebar-collapse-btn{width:34px;height:34px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:var(--accent);cursor:pointer;display:grid;place-items:center;transition:.25s}.sidebar-collapse-btn:hover{background:rgba(240,197,90,.12);border-color:rgba(240,197,90,.3)}.logo{margin-bottom:25px}.logo img{width:180px;object-fit:contain;transition:width .28s ease}.logo .logo-compact{display:none}.training-title{font-family:'Orbitron',sans-serif;font-size:24px;font-weight:800;line-height:1.2;color:var(--accent);margin-bottom:10px;text-transform:uppercase}.training-subtitle{font-size:13px;line-height:1.6;color:#C4D7F3;margin-bottom:26px}.menu-title{font-size:12px;letter-spacing:0;text-transform:uppercase;color:#7F9BC0;margin-bottom:14px}.menu{display:flex;flex-direction:column;gap:9px}.menu-item{display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:14px;background:rgba(255,255,255,.02);border:1px solid transparent;cursor:pointer;transition:.35s}.menu-item:hover,.menu-item.active{background:rgba(94,136,193,.12);border-color:rgba(94,136,193,.25);transform:translateX(4px)}.menu-item i{width:20px;text-align:center;color:var(--accent)}.menu-item strong{display:block;font-size:14px;font-weight:600}.menu-item span{font-size:11px;color:#B4C7E7}.progress-card{margin-top:24px;padding:18px;border-radius:18px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)}.progress-card h4{font-size:12px;margin-bottom:12px;color:#B4C7E7}.progress-bar,.top-progress .bar{height:8px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden}.progress-fill,.bar-fill{height:100%;width:0;background:linear-gradient(90deg,var(--accent),#FFE082);transition:.4s}.progress-info{margin-top:10px;display:flex;justify-content:space-between;font-size:12px}.main{margin-left:260px;height:100vh;position:relative;overflow:hidden;transition:margin-left .28s ease}.topbar{position:fixed;left:260px;right:0;top:0;height:68px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;background:rgba(0,0,0,.15);backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,.05);z-index:99;transition:left .28s ease}.top-progress{width:50%}.top-progress-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}.top-progress span{font-size:12px;color:#C8D8F2;display:block;margin-bottom:10px}.top-progress-head span{margin-bottom:0}.top-actions{display:flex;justify-content:flex-end;gap:10px}.action-btn{padding:8px 13px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:white;text-decoration:none;cursor:pointer;font-size:13px;line-height:1;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:8px}.action-btn:hover{background:rgba(240,197,90,.12);border-color:rgba(240,197,90,.2)}body.sidebar-collapsed .sidebar{width:84px;padding:28px 12px;overflow:hidden}body.sidebar-collapsed .sidebar-collapse-btn i{transform:rotate(180deg)}body.sidebar-collapsed .logo{margin-top:0;margin-bottom:24px;width:100%;display:flex;align-items:center;justify-content:center}body.sidebar-collapsed .logo .logo-wide{display:none}body.sidebar-collapsed .logo .logo-compact{display:block;width:56px;max-width:56px;height:auto;margin:0 auto;object-fit:contain;object-position:center}body.sidebar-collapsed .training-title,body.sidebar-collapsed .training-subtitle,body.sidebar-collapsed .menu-title,body.sidebar-collapsed .progress-card,body.sidebar-collapsed .menu-item strong,body.sidebar-collapsed .menu-item span{display:none}body.sidebar-collapsed .menu{align-items:center;width:100%}body.sidebar-collapsed .menu-item{width:46px;height:46px;display:grid;place-items:center;gap:0;padding:0;border-radius:14px;margin:0 auto}body.sidebar-collapsed .menu-item i{width:22px;height:22px;min-width:0;margin:0;display:grid;place-items:center;font-size:16px;line-height:1;text-align:center;transform:none}body.sidebar-collapsed .menu-item i:before{display:grid;width:22px;height:22px;place-items:center;text-align:center;line-height:1}body.sidebar-collapsed .menu-item:hover,body.sidebar-collapsed .menu-item.active{transform:none}body.sidebar-collapsed .main{margin-left:84px}body.sidebar-collapsed .topbar,body.sidebar-collapsed .slide-footer{left:84px}.slides{height:100vh;position:relative}.slide{position:absolute;inset:0;padding:88px 48px 72px;overflow-y:auto;opacity:0;transform:translateX(40px);transition:.45s ease}.slide.active{opacity:1;transform:translateX(0);z-index:2}.badge{display:inline-flex;align-items:center;gap:10px;padding:10px 16px;border-radius:999px;background:rgba(94,136,193,.12);border:1px solid rgba(94,136,193,.28);color:#C4D7F3;font-size:14px;font-weight:600;margin-bottom:18px}.badge i{color:var(--accent)}h1,h2{font-family:'Orbitron',sans-serif;text-transform:uppercase;line-height:1.08;letter-spacing:0}h2{font-size:clamp(30px,4.2vw,64px);margin-bottom:22px}.gradient-title{background:linear-gradient(90deg,#fff,#F0C55A);-webkit-background-clip:text;-webkit-text-fill-color:transparent}.lead{font-size:18px;line-height:1.7;color:#C4D7F3;max-width:900px;margin-bottom:26px}.capa-layout{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:18px}.capa-eyebrow{color:#C4D7F3;letter-spacing:0;text-transform:uppercase;font-size:14px}.capa-title{font-size:clamp(34px,6vw,76px)}.capa-subtitle{font-size:clamp(18px,2vw,28px);color:#C4D7F3}.capa-divider{width:120px;height:4px;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--light));margin:6px auto}.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.card{position:relative;padding:24px;border-radius:18px;background:var(--card);border:1px solid var(--border);overflow:hidden}.card:before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--accent),var(--light))}.card i{font-size:28px;color:var(--accent);margin-bottom:16px}.card h3{font-size:20px;margin-bottom:10px}.card p{font-size:15px;line-height:1.6;color:#C4D7F3}.big-check{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}.big-check-item{display:flex;align-items:center;gap:14px;padding:20px;border-radius:18px;background:var(--card);border:1px solid var(--border);font-size:18px}.big-check-item i{color:#74FF9F}.flow-steps{display:flex;align-items:stretch;gap:14px;flex-wrap:wrap}.flow-step{flex:1;min-width:160px;padding:20px;border-radius:18px;background:var(--card);border:1px solid var(--border);text-align:center}.step-num{font-family:'Orbitron';color:var(--accent);font-size:13px}.step-icon{font-size:26px;color:var(--accent);margin:12px}.step-label{font-weight:700}.flow-arrow{display:flex;align-items:center;color:var(--accent)}.simple-table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:18px;overflow:hidden}.simple-table td{padding:16px;border-bottom:1px solid var(--border);font-size:15px}.slide-footer{position:fixed;left:260px;right:0;bottom:0;height:60px;display:flex;align-items:center;justify-content:center;gap:30px;padding:0 55px;background:linear-gradient(to top,rgba(2,11,22,.95) 60%,transparent);z-index:90;pointer-events:none;transition:left .28s ease}.slide-footer:before,.slide-footer:after{content:'';height:1px;flex:1;background:linear-gradient(90deg,transparent,rgba(240,197,90,.3))}.slide-footer img{width:160px;opacity:.85}#drawCanvas{position:fixed;inset:0;z-index:85;pointer-events:none}@media(max-width:980px){.sidebar{left:-270px;transition:.3s}.sidebar.open{left:0}.main{margin-left:0}.topbar{left:0}.slide-footer{left:0;padding:0 24px}.grid-3,.big-check{grid-template-columns:1fr}.slide{padding:88px 22px 72px}.btn-label{display:none}body.sidebar-collapsed .sidebar{width:260px;padding:28px 20px}body.sidebar-collapsed .main{margin-left:0}body.sidebar-collapsed .topbar,body.sidebar-collapsed .slide-footer{left:0}body.sidebar-collapsed .logo{margin-top:0;margin-bottom:25px}body.sidebar-collapsed .logo img{width:180px}body.sidebar-collapsed .logo .logo-wide{display:block}body.sidebar-collapsed .logo .logo-compact{display:none}body.sidebar-collapsed .training-title,body.sidebar-collapsed .training-subtitle,body.sidebar-collapsed .menu-title,body.sidebar-collapsed .progress-card,body.sidebar-collapsed .menu-item strong,body.sidebar-collapsed .menu-item span{display:block}}
 body.light-mode{background:#F4F7FB;color:#102033;}
 body.light-mode:before{background:radial-gradient(circle at top right,rgba(94,136,193,.18),transparent 35%),radial-gradient(circle at bottom left,rgba(240,197,90,.14),transparent 25%),linear-gradient(135deg,#F8FAFE,#EAF0F8,#DDE8F5);}
 body.light-mode:after{background-image:linear-gradient(rgba(0,52,103,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(0,52,103,.055) 1px,transparent 1px);opacity:.55;}
@@ -901,9 +1167,7 @@ async function generateTraining(input) {
   const areaSlug = slugify(plan.area);
   const areaDir = path.join(deckRoot, areaSlug);
   await mkdir(areaDir, { recursive: true });
-  const { fileSlug, version } = await uniqueDeckFile(areaDir, plan.title);
-  const filePath = path.join(areaDir, fileSlug);
-  await writeFile(filePath, renderDeck(plan));
+  const { fileSlug, version } = await writeUniqueDeck(areaDir, plan.title, renderDeck(plan));
   const relFile = `decks/${areaSlug}/${fileSlug}`;
   await writeCatalog({
     title: plan.title,
@@ -911,41 +1175,61 @@ async function generateTraining(input) {
     version,
     file: relFile,
     status: 'Rascunho gerado',
-    description: input.objective || plan.objective || plan.subtitle || ''
+    description: text(input?.objective) || plan.objective || plan.subtitle || '',
+    generated: true
   });
   return { ...result, file: relFile, url: `/${relFile}`, plan };
 }
 
 function resolveDeckFile(file) {
-  const clean = String(file || '').replace(/^\/+/, '');
-  if (!clean || !clean.endsWith('.html')) throw new Error('Arquivo do treinamento invalido para revisão.');
+  const clean = text(file).replace(/^\/+/, '');
+  if (!clean || !clean.endsWith('.html')) throw new RequestError('Arquivo do treinamento invalido para revisão.');
   const filePath = path.resolve(trainingRoot, clean);
   const relativePath = path.relative(trainingRoot, filePath);
-  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) throw new Error('Caminho do treinamento fora da pasta permitida.');
-  if (!relativePath.startsWith(`decks${path.sep}`)) throw new Error('A revisão só pode alterar arquivos em treinamentos/decks.');
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) throw new RequestError('Caminho do treinamento fora da pasta permitida.');
+  if (!relativePath.startsWith(`decks${path.sep}`)) throw new RequestError('A revisão só pode alterar arquivos em treinamentos/decks.');
   return { filePath, relFile: relativePath.split(path.sep).join('/') };
 }
 
+/**
+ * A revisao sobrescreve o arquivo por inteiro. Decks autorais (feitos a mao a
+ * partir do template) nao tem `generated: true` no catalogo e ficam protegidos.
+ */
+async function assertRevisableDeck(relFile) {
+  const catalog = await readCatalog();
+  const trainings = Array.isArray(catalog.trainings) ? catalog.trainings : [];
+  const entry = trainings.find((item) => item.file === relFile);
+  if (!entry) throw new RequestError('Treinamento nao encontrado no catálogo.', 404);
+  if (entry.generated !== true) {
+    throw new RequestError('Este treinamento não foi criado pelo gerador e não pode ser sobrescrito pela revisão.', 403);
+  }
+  return entry;
+}
+
 async function reviseTraining(input) {
-  const instruction = String(input.instruction || '').trim();
-  if (!instruction) throw new Error('Informe o pedido de revisão.');
+  const instruction = text(input.instruction);
+  if (!instruction) throw new RequestError('Informe o pedido de revisão.');
   const { filePath, relFile } = resolveDeckFile(input.file);
+  const entry = await assertRevisableDeck(relFile);
   await stat(filePath);
 
+  const briefing = normalizeBriefing(input.briefing);
   const result = await llmRevisePlan({
     instruction,
-    plan: input.plan || {},
-    briefing: normalizeBriefing(input.briefing || {})
+    plan: isPlainObject(input.plan) ? input.plan : {},
+    briefing
   });
   const plan = result.plan;
   await writeFile(filePath, renderDeck(plan));
   await writeCatalog({
+    ...entry,
     title: plan.title,
     area: plan.area,
     version: 'rev',
     file: relFile,
     status: 'Revisado',
-    description: plan.objective || plan.subtitle || input.briefing?.objective || ''
+    description: plan.objective || plan.subtitle || briefing.objective || '',
+    generated: true
   });
   return {
     ...result,
@@ -958,14 +1242,27 @@ async function reviseTraining(input) {
 
 async function serveStatic(req, res) {
   const url = new URL(req.url, 'http://localhost');
-  const pathname = url.pathname === '/' ? '/index.html' : url.pathname;
+  let pathname;
+  try {
+    // Sem decode, arquivos com espaco (%20) nunca resolviam. O decode acontece
+    // antes do resolve, e a checagem de path relativo abaixo continua barrando
+    // qualquer travessia que apareca depois de decodificada.
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    return json(res, 400, { error: 'Caminho invalido.' });
+  }
+  if (pathname.includes('\0')) return json(res, 400, { error: 'Caminho invalido.' });
+  if (pathname === '/') pathname = '/index.html';
   const filePath = path.resolve(publicDir, `.${pathname}`);
   const relativePath = path.relative(publicDir, filePath);
   if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) return json(res, 403, { error: 'Acesso negado.' });
   try {
     const info = await stat(filePath);
     if (!info.isFile()) throw new Error('not file');
-    res.writeHead(200, { 'content-type': mime[path.extname(filePath)] || 'application/octet-stream' });
+    res.writeHead(200, {
+      ...securityHeaders,
+      'content-type': mime[path.extname(filePath).toLowerCase()] || 'application/octet-stream'
+    });
     createReadStream(filePath).pipe(res);
   } catch {
     json(res, 404, { error: 'Arquivo nao encontrado.' });
@@ -977,7 +1274,10 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (req.method === 'GET' && url.pathname === '/api/catalog') return json(res, 200, await readCatalog());
     if (req.method === 'GET' && url.pathname === '/api/config') return json(res, 200, { catalogBaseUrl, authRequired: requireAuth });
-    if (req.method === 'POST' && url.pathname === '/api/validate-key') return json(res, hasValidGeneratorKey(req) ? 200 : 401, hasValidGeneratorKey(req) ? { ok: true } : { error: 'Chave de acesso invalida.' });
+    if (req.method === 'POST' && url.pathname === '/api/validate-key') {
+      const result = checkGeneratorKey(req);
+      return json(res, result.status, result.ok ? { ok: true } : { error: result.error });
+    }
     if (req.method === 'GET' && url.pathname === '/api/llm-config') {
       if (!requireGeneratorKey(req, res)) return;
       return json(res, 200, await readLlmConfig());
@@ -985,6 +1285,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/llm-config') {
       if (!requireGeneratorKey(req, res)) return;
       return json(res, 200, await saveLlmConfig(await readBody(req)));
+    }
+    if (req.method === 'POST' && url.pathname === '/api/llm-models') {
+      if (!requireGeneratorKey(req, res)) return;
+      return json(res, 200, await listLlmModels(await readBody(req)));
     }
     if (req.method === 'POST' && url.pathname === '/api/chat') {
       if (!requireGeneratorKey(req, res)) return;
@@ -1001,11 +1305,49 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { ok: true, trainingRoot });
     return serveStatic(req, res);
   } catch (error) {
-    json(res, 500, { error: error.message });
+    // Erros internos (ENOENT com caminho absoluto, falhas de parse, etc.) ficam
+    // no log. O cliente so recebe mensagens marcadas como expostas.
+    if (error?.expose) {
+      console.warn(`[recusado] ${req.method} ${req.url} -> ${error.status || 400}: ${error.message}`);
+      return json(res, error.status || 400, { error: error.message });
+    }
+    console.error(`[erro] ${req.method} ${req.url}`, error);
+    return json(res, 500, { error: 'Erro interno no gerador.' });
   }
 });
 
-server.listen(port, () => {
-  console.log(`Gerador de treinamentos 3F em http://localhost:${port}`);
-  console.log(`Training root: ${trainingRoot}`);
-});
+const isMainModule = process.argv[1]
+  ? path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  : false;
+
+if (isMainModule) {
+  server.listen(port, () => {
+    console.log(`Gerador de treinamentos 3F em http://localhost:${port}`);
+    console.log(`Training root: ${trainingRoot}`);
+  });
+}
+
+export {
+  RequestError,
+  addRevisionSlides,
+  assertAllowedLlmUrl,
+  comparableText,
+  dedupeLines,
+  esc,
+  extractBriefingFromMessages,
+  fallbackPlan,
+  fallbackRevisePlan,
+  mergeDescription,
+  normalizeBriefing,
+  normalizePlan,
+  normalizeSlide,
+  parseEnv,
+  renderDeck,
+  requestedSlideCount,
+  resolveDeckFile,
+  serializeEnv,
+  server,
+  slugify,
+  text,
+  withSlideLimit
+};

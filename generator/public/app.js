@@ -19,9 +19,16 @@ const llmSlot = document.getElementById('llmSlot');
 const llmLabel = document.getElementById('llmLabel');
 const llmApiKey = document.getElementById('llmApiKey');
 const llmModel = document.getElementById('llmModel');
+const llmCustomModelWrap = document.getElementById('llmCustomModelWrap');
+const llmCustomModel = document.getElementById('llmCustomModel');
+const llmNewApiBtn = document.getElementById('llmNewApiBtn');
+const llmLoadModelsBtn = document.getElementById('llmLoadModelsBtn');
 const llmApiUrl = document.getElementById('llmApiUrl');
+const llmModelsUrlPreview = document.getElementById('llmModelsUrlPreview');
+const llmSlotSummary = document.getElementById('llmSlotSummary');
 const llmStatus = document.getElementById('llmStatus');
 const statusBox = document.getElementById('statusBox');
+const statusIcon = document.getElementById('statusIcon');
 const statusTitle = document.getElementById('statusTitle');
 const statusCard = document.getElementById('statusCard');
 const progressText = document.getElementById('progressText');
@@ -57,13 +64,13 @@ const fields = {
   description: document.getElementById('description')
 };
 
-let messages = [
-  {
-    role: 'assistant',
-    content: 'Qual treinamento você quer criar? Me diga o tema, o público e o principal objetivo.'
-  }
-];
-let briefing = {};
+const openingMessage = 'Qual treinamento você quer criar? Me diga o tema, o público e o principal objetivo.';
+
+function newMessage(role, content) {
+  return { role, content, at: nowTime() };
+}
+
+let messages = [newMessage('assistant', openingMessage)];
 let draftPlan = null;
 let generatedTraining = null;
 let authRequired = false;
@@ -83,6 +90,9 @@ async function loadRuntimeConfig() {
     authRequired = Boolean(config.authRequired);
   } catch {
     catalogBase = fallbackCatalogBase();
+    // Sem resposta do servidor, assume que ha autenticacao: o contrario esconde o
+    // portao de acesso e todas as chamadas voltam 401 sem explicacao.
+    authRequired = true;
   }
   document.getElementById('catalogLink').href = catalogBase;
   document.getElementById('catalogLinkBottom').href = catalogBase;
@@ -100,13 +110,18 @@ function resetAccess() {
   accessKeyInput.focus();
 }
 
+/** Retorna `{ ok, reason }` para distinguir chave errada de bloqueio por tentativas. */
 async function validateAccessKey(key) {
-  if (!authRequired) return true;
+  if (!authRequired) return { ok: true };
   const response = await fetch('/api/validate-key', {
     method: 'POST',
     headers: { 'X-API-Key': key }
   });
-  return response.ok;
+  if (response.ok) return { ok: true };
+  if (response.status === 429) {
+    return { ok: false, reason: 'Muitas tentativas seguidas. Aguarde um minuto antes de tentar de novo.' };
+  }
+  return { ok: false, reason: 'Chave invalida. Verifique e tente novamente.' };
 }
 
 async function ensureAccess() {
@@ -114,7 +129,7 @@ async function ensureAccess() {
     accessGate.hidden = true;
     return true;
   }
-  if (generatorKey && await validateAccessKey(generatorKey)) {
+  if (generatorKey && (await validateAccessKey(generatorKey)).ok) {
     accessGate.hidden = true;
     return true;
   }
@@ -138,7 +153,152 @@ async function loadLlmConfig() {
   return payload;
 }
 
+function suggestedModels(apiUrl) {
+  const url = String(apiUrl || '').toLowerCase();
+  if (url.includes('openrouter.ai')) return ['openai/gpt-4.1-mini', 'openai/gpt-4.1', 'anthropic/claude-3.5-sonnet', 'google/gemini-1.5-pro'];
+  if (url.includes('groq.com')) return ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'];
+  if (url.includes('deepseek.com')) return ['deepseek-chat', 'deepseek-reasoner'];
+  if (url.includes('mistral.ai')) return ['mistral-large-latest', 'mistral-small-latest'];
+  return ['gpt-4.1-mini', 'gpt-4.1', 'gpt-4o-mini', 'gpt-4o'];
+}
+
+function deriveModelsUrl(apiUrl) {
+  try {
+    const parsed = new URL(String(apiUrl || ''));
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    const versionIndex = parts.findIndex((part) => /^v\d+$/i.test(part));
+    const chatIndex = parts.findIndex((part) => /^(chat|messages|completions)$/i.test(part));
+    const baseParts = versionIndex >= 0
+      ? parts.slice(0, versionIndex + 1)
+      : parts.slice(0, Math.max(0, chatIndex));
+    parsed.pathname = `/${[...baseParts, 'models'].join('/')}`;
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
+}
+
+function refreshModelsUrlPreview() {
+  const modelsUrl = deriveModelsUrl(llmApiUrl.value);
+  llmModelsUrlPreview.textContent = modelsUrl
+    ? `Consulta de modelos: ${modelsUrl}`
+    : 'Consulta de modelos: informe uma URL valida primeiro';
+}
+
+function setModelOptions(models, selected) {
+  const current = selected || llmModel.value || llmCustomModel.value || 'gpt-4.1-mini';
+  const unique = [...new Set([current, ...models].filter(Boolean))];
+  llmModel.innerHTML = unique
+    .map((model) => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`)
+    .join('') + '<option value="__custom">Modelo personalizado...</option>';
+  llmModel.value = unique.includes(current) ? current : '__custom';
+  llmCustomModelWrap.hidden = llmModel.value !== '__custom';
+  if (llmModel.value === '__custom') llmCustomModel.value = current;
+}
+
+function selectedModelValue() {
+  return llmModel.value === '__custom' ? llmCustomModel.value.trim() : llmModel.value;
+}
+
+function providerName(apiUrl) {
+  const url = String(apiUrl || '').toLowerCase();
+  if (url.includes('deepseek.com')) return 'DeepSeek';
+  if (url.includes('openrouter.ai')) return 'OpenRouter';
+  if (url.includes('groq.com')) return 'Groq';
+  if (url.includes('mistral.ai')) return 'Mistral';
+  if (url.includes('anthropic.com')) return 'Anthropic';
+  if (url.includes('googleapis.com')) return 'Google';
+  if (url.includes('openai.com')) return 'OpenAI';
+  try {
+    return new URL(apiUrl).hostname.replace(/^api\./, '');
+  } catch {
+    return 'API';
+  }
+}
+
+function prepareNewApiSlot() {
+  const slots = llmConfig.slots || [];
+  const empty = slots.find((slot) => !slot.configured) || slots.find((slot) => slot.slot !== llmConfig.activeSlot);
+  if (!empty) {
+    llmStatus.textContent = 'Os 5 slots de API ja estao preenchidos. Selecione um slot existente para substituir.';
+    return;
+  }
+  refreshLlmSlotOptions(empty.slot);
+  llmSlot.value = String(empty.slot);
+  llmLabel.value = `API ${empty.slot}`;
+  llmApiUrl.value = 'https://api.openai.com/v1/chat/completions';
+  llmApiKey.value = '';
+  llmCustomModel.value = '';
+  llmCustomModelWrap.hidden = true;
+  setModelOptions(suggestedModels(llmApiUrl.value), 'gpt-4.1-mini');
+  refreshModelsUrlPreview();
+  llmSlotSummary.textContent = `Nova API no slot ${empty.slot}. Informe nome, URL, chave e modelo para salvar.`;
+  llmStatus.textContent = 'Preencha os dados da nova API e clique em Salvar e ativar.';
+  llmLabel.focus();
+}
+
+function providerFromConfig({ label = '', model = '', apiUrl = '' } = {}) {
+  const value = `${label} ${model} ${apiUrl}`.toLowerCase();
+  if (value.includes('deepseek')) return 'deepseek';
+  if (value.includes('openrouter')) return 'openrouter';
+  if (value.includes('groq')) return 'groq';
+  if (value.includes('mistral')) return 'mistral';
+  if (value.includes('anthropic') || value.includes('claude')) return 'anthropic';
+  if (value.includes('gemini') || value.includes('google')) return 'google';
+  if (value.includes('openai') || value.includes('gpt-')) return 'openai';
+  return '';
+}
+
+function providerMismatchMessage({ label, model, apiUrl }) {
+  const provider = providerFromConfig({ label, model });
+  if (!provider) return '';
+  let host = '';
+  try {
+    host = new URL(apiUrl).hostname.toLowerCase();
+  } catch {
+    return 'Informe uma URL da API valida.';
+  }
+  const expected = {
+    deepseek: ['deepseek.com'],
+    openrouter: ['openrouter.ai'],
+    groq: ['groq.com'],
+    mistral: ['mistral.ai'],
+    anthropic: ['anthropic.com'],
+    google: ['googleapis.com'],
+    openai: ['openai.com']
+  }[provider] || [];
+  const ok = expected.some((item) => host === item || host.endsWith(`.${item}`));
+  return ok ? '' : `Modelo/provedor ${provider} nao combina com a URL ${host}. Ajuste a URL da API antes de salvar.`;
+}
+
+function refreshLlmSlotOptions(selectedSlot) {
+  const slots = llmConfig.slots?.length ? llmConfig.slots : Array.from({ length: 5 }, (_, index) => ({
+    slot: index + 1,
+    label: `API ${index + 1}`,
+    model: '',
+    apiUrl: '',
+    configured: false
+  }));
+  llmSlot.innerHTML = slots.map((slot) => {
+    const label = `API ${slot.slot}`;
+    return `<option value="${slot.slot}">${escapeHtml(label)}</option>`;
+  }).join('');
+  llmSlot.value = String(selectedSlot || llmConfig.activeSlot || 1);
+}
+
+function renderSlotSummary(slot) {
+  const state = slot.configured
+    ? slot.slot === llmConfig.activeSlot ? 'ativa' : 'salva'
+    : 'vazia';
+  const provider = providerName(slot.apiUrl);
+  const model = slot.configured ? slot.model || 'modelo nao definido' : 'aguardando configuracao';
+  llmSlotSummary.textContent = `Selecionada: API ${slot.slot} · ${slot.label || provider} · ${state} · ${provider} · ${model}`;
+}
+
 function renderLlmConfig(slotNumber) {
+  refreshLlmSlotOptions(Number(slotNumber));
   const slot = llmConfig.slots?.find((item) => item.slot === Number(slotNumber)) || {
     slot: Number(slotNumber),
     label: `API ${slotNumber}`,
@@ -146,14 +306,16 @@ function renderLlmConfig(slotNumber) {
     apiUrl: 'https://api.openai.com/v1/chat/completions',
     configured: false
   };
+  renderSlotSummary(slot);
   llmSlot.value = String(slot.slot);
   llmLabel.value = slot.label || `API ${slot.slot}`;
-  llmModel.value = slot.model || 'gpt-4.1-mini';
   llmApiUrl.value = slot.apiUrl || 'https://api.openai.com/v1/chat/completions';
+  refreshModelsUrlPreview();
+  setModelOptions(suggestedModels(llmApiUrl.value), slot.model || 'gpt-4.1-mini');
   llmApiKey.value = '';
   llmApiKey.placeholder = slot.configured ? 'Chave ja configurada. Deixe vazio para manter.' : 'Cole a chave da LLM';
   llmStatus.textContent = slot.configured
-    ? `Slot ${slot.slot} configurado. Slot ativo atual: API ${llmConfig.activeSlot}.`
+    ? `Selecionado: ${slot.label || `API ${slot.slot}`} (${providerName(slot.apiUrl)}) usando ${slot.model || 'modelo nao definido'}. Slot ativo atual: API ${llmConfig.activeSlot}.`
     : `Slot ${slot.slot} ainda sem chave.`;
 }
 
@@ -173,9 +335,21 @@ function closeLlmModal() {
 }
 
 async function saveLlmConfig() {
-  const button = llmForm.querySelector('button[type="submit"]');
-  button.disabled = true;
-  button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+  const submitButtons = [...llmForm.querySelectorAll('button[type="submit"]')];
+  const mismatch = providerMismatchMessage({
+    label: llmLabel.value,
+    model: selectedModelValue(),
+    apiUrl: llmApiUrl.value
+  });
+  if (mismatch) {
+    llmStatus.textContent = mismatch;
+    return;
+  }
+  const previousButtons = submitButtons.map((button) => ({ button, html: button.innerHTML }));
+  submitButtons.forEach((button) => {
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+  });
   llmStatus.textContent = 'Salvando no .env local...';
   try {
     const response = await fetch('/api/llm-config', {
@@ -185,7 +359,7 @@ async function saveLlmConfig() {
         slot: llmSlot.value,
         label: llmLabel.value,
         apiKey: llmApiKey.value,
-        model: llmModel.value,
+        model: selectedModelValue(),
         apiUrl: llmApiUrl.value
       })
     });
@@ -198,8 +372,43 @@ async function saveLlmConfig() {
   } catch (error) {
     llmStatus.textContent = error.message;
   } finally {
+    previousButtons.forEach(({ button, html }) => {
+      button.disabled = false;
+      button.innerHTML = html;
+    });
+  }
+}
+
+async function loadAvailableModels() {
+  const button = llmLoadModelsBtn;
+  button.disabled = true;
+  button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Carregando...';
+  refreshModelsUrlPreview();
+  llmStatus.textContent = `Consultando modelos em ${deriveModelsUrl(llmApiUrl.value) || 'URL invalida'}...`;
+  try {
+    const response = await fetch('/api/llm-models', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({
+        slot: llmSlot.value,
+        apiUrl: llmApiUrl.value,
+        apiKey: llmApiKey.value
+      })
+    });
+    const payload = await response.json();
+    if (response.status === 401) resetAccess();
+    if (!response.ok) throw new Error(payload.error || 'Falha ao carregar modelos.');
+    setModelOptions(payload.models || [], selectedModelValue());
+    if (payload.modelsUrl) llmModelsUrlPreview.textContent = `Consulta de modelos: ${payload.modelsUrl}`;
+    llmStatus.textContent = payload.models?.length
+      ? `${payload.models.length} modelos carregados. Selecione um modelo e salve.`
+      : 'A API respondeu sem lista de modelos. Use modelo personalizado.';
+  } catch (error) {
+    setModelOptions(suggestedModels(llmApiUrl.value), selectedModelValue());
+    llmStatus.textContent = `${error.message} Usando sugestões locais; você também pode informar um modelo personalizado.`;
+  } finally {
     button.disabled = false;
-    button.innerHTML = '<i class="fas fa-floppy-disk"></i> Salvar e ativar';
+    button.innerHTML = '<i class="fas fa-list"></i> Carregar modelos';
   }
 }
 
@@ -236,10 +445,19 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;');
 }
 
+function catalogUrl(pathname = '') {
+  const base = String(catalogBase || '').replace(/\/+$/, '');
+  const suffix = String(pathname || '');
+  if (!suffix) return base;
+  return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`;
+}
+
 function renderResultCard({ mode, title, slides, status, url }) {
   const updated = mode === 'updated';
   const kicker = updated ? 'Treinamento atualizado' : 'Treinamento criado com sucesso';
   const dateLabel = updated ? 'Revisado em' : 'Criado em';
+  const trainingUrl = catalogUrl(url);
+  const catalogHref = catalogUrl();
   return `<div class="result-card">
 <div class="result-kicker"><i class="fas ${updated ? 'fa-rotate' : 'fa-circle-check'}"></i> ${kicker}</div>
 <div class="result-title">${escapeHtml(title || 'Treinamento 3F')}</div>
@@ -249,8 +467,8 @@ function renderResultCard({ mode, title, slides, status, url }) {
 <span><b>Status</b>${escapeHtml(status)}</span>
 </div>
 <div class="result-actions">
-<a class="result-action primary" href="${catalogBase}${url}" target="_blank" rel="noopener"><i class="fas fa-arrow-up-right-from-square"></i> Abrir treinamento</a>
-<a class="result-action" href="${catalogBase}" target="_blank" rel="noopener"><i class="fas fa-house"></i> Catálogo</a>
+<a class="result-action primary" href="${escapeHtml(trainingUrl)}" target="_blank" rel="noopener"><i class="fas fa-arrow-up-right-from-square"></i> Abrir treinamento</a>
+<a class="result-action" href="${escapeHtml(catalogHref)}" target="_blank" rel="noopener"><i class="fas fa-house"></i> Catálogo</a>
 </div>
 </div>`;
 }
@@ -296,9 +514,9 @@ function sanitizeBriefing(data) {
 }
 
 function applyBriefing(next) {
-  briefing = sanitizeBriefing({ ...briefing, ...sanitizeBriefing(next) });
+  const clean = sanitizeBriefing(next);
   for (const [key, input] of Object.entries(fields)) {
-    if (briefing[key] != null && briefing[key] !== input.value) input.value = briefing[key];
+    if (clean[key] != null && clean[key] !== input.value) input.value = clean[key];
   }
 }
 
@@ -352,7 +570,7 @@ function renderMessages() {
     const user = message.role === 'user';
     return `<article class="msg ${user ? 'user' : 'assistant'}">
 <div class="avatar">${user ? '<i class="fas fa-user"></i>' : '3F'}</div>
-<div><div class="bubble">${escapeHtml(message.content)}</div><div class="meta">${nowTime()}</div></div>
+<div><div class="bubble">${escapeHtml(message.content)}</div><div class="meta">${escapeHtml(message.at || '')}</div></div>
 </article>`;
   }).join('') + `<div class="chips">${chips.map(([label, prompt]) => `<button class="chip" data-prompt="${escapeHtml(prompt)}"><i class="fas fa-square-plus"></i> ${escapeHtml(label)}</button>`).join('')}</div>`;
   thread.scrollTop = thread.scrollHeight;
@@ -392,19 +610,12 @@ function completeness(data) {
 
 function renderBriefing(data) {
   const rows = [
-    ['Título', data.title],
-    ['Tema', data.theme],
-    ['Área', data.area],
+    ['Foco', data.title || data.theme],
     ['Público-alvo', data.audience],
     ['Objetivo', data.objective],
     ['Duração', data.duration],
-    ['Nível', data.level],
-    ['Tom', data.tone],
-    ['Operação', data.operationType],
-    ['KPI impactado', data.kpiTarget],
-    ['Dor operacional', data.operationalPain],
-    ['Comportamento', data.behaviorChange],
-    ['Evidência', data.learningEvidence]
+    ['Impacto', data.kpiTarget || data.behaviorChange],
+    ['Tom', data.tone || data.level]
   ];
   briefingPanel.innerHTML = rows.map(([label, value]) => `<div class="brief-row"><span>${label}</span><button class="${value ? 'filled' : 'missing'}" data-field-label="${label}" title="Clique para corrigir ${escapeHtml(label.toLowerCase())}"><b>${escapeHtml(value || 'Ainda não informado')}</b><i class="fas ${value ? 'fa-pen' : 'fa-plus'}"></i></button></div>`).join('');
 }
@@ -414,13 +625,18 @@ function renderRoute(data) {
   const descriptionText = String(data.description || '');
   slideCount.textContent = `${slides.length || 0} slides`;
   routeDuration.textContent = `Duração estimada: ${data.duration || '--'}`;
-  slidesPreview.innerHTML = slides.length ? slides.slice(0, 10).map((slide, index) => `<div class="slide-row"><div class="slide-num">${index + 1}</div><strong>${escapeHtml(slide.title)}</strong></div>`).join('') : '<div class="slide-row"><div class="slide-num">--</div><strong>Aguardando tópicos do treinamento</strong></div>';
+  const mainSteps = slides.slice(0, 4);
+  const remaining = Math.max(0, slides.length - mainSteps.length);
+  slidesPreview.innerHTML = mainSteps.length
+    ? mainSteps.map((slide, index) => `<div class="slide-row"><div class="slide-num">${index + 1}</div><strong>${escapeHtml(slide.title)}</strong></div>`).join('')
+    : '<div class="slide-row"><div class="slide-num">--</div><strong>Aguardando estrutura principal</strong></div>';
+  if (remaining) {
+    slidesPreview.innerHTML += `<div class="route-note">+ ${remaining} etapas organizadas no treinamento completo</div>`;
+  }
   const flags = [
-    ['Atividade prática', data.practice || (descriptionText.toLowerCase().includes('atividade') ? 'Sim' : 'Não')],
+    ['Prática', data.practice || (descriptionText.toLowerCase().includes('atividade') ? 'Sim' : 'Não')],
     ['Avaliação', data.evaluation || (descriptionText.toLowerCase().includes('avalia') ? 'Sim' : 'Não')],
-    ['Exemplos', descriptionText.toLowerCase().includes('exemplo') ? 'Sim' : 'Não'],
-    ['KPI', data.kpiTarget ? data.kpiTarget : 'Pendente'],
-    ['Comportamento', data.behaviorChange ? 'Definido' : 'Pendente']
+    ['Impacto', data.kpiTarget || data.behaviorChange ? 'Definido' : 'Pendente']
   ];
   slidesPreview.innerHTML += `<div class="flags">${flags.map(([label, value]) => `<div class="flag"><span>${label}</span><b>${escapeHtml(value)}</b></div>`).join('')}</div>`;
 }
@@ -435,6 +651,7 @@ function renderStatus(data) {
     generateBtn.disabled = false;
     generateBtn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i> Gerar nova versão';
     generateBtn.title = 'Gerar uma nova versão a partir do briefing atual. Para ajustar o arquivo criado, use o chat.';
+    statusIcon.className = 'fas fa-pen-to-square';
     statusCard.style.borderColor = 'rgba(78,165,255,.34)';
     statusTitle.style.color = 'var(--blue)';
     statusTitle.textContent = 'Modo revisão';
@@ -447,6 +664,7 @@ function renderStatus(data) {
   generateBtn.title = missing.length ? `Informe ${missing.join(', ')} para continuar.` : 'Gerar treinamento no padrão 3F.';
 
   statusCard.style.borderColor = missing.length ? 'rgba(240,197,90,.32)' : 'rgba(116,255,159,.28)';
+  statusIcon.className = missing.length ? 'fas fa-circle-exclamation' : 'fas fa-circle-check';
   statusTitle.style.color = missing.length ? 'var(--warn)' : 'var(--green)';
   statusTitle.textContent = missing.length ? 'Faltam informações' : 'Pronto para gerar';
   statusBox.textContent = missing.length
@@ -463,7 +681,7 @@ function renderPreview() {
 }
 
 async function sendChat(text) {
-  messages.push({ role: 'user', content: text });
+  messages.push(newMessage('user', text));
   renderMessages();
   statusBox.textContent = 'Analisando a conversa e atualizando o briefing...';
   const response = await fetch('/api/chat', {
@@ -476,14 +694,14 @@ async function sendChat(text) {
   if (!response.ok) throw new Error(payload.error || 'Falha no chat.');
   applyBriefing(payload.briefing || {});
   draftPlan = payload.draftPlan || null;
-  messages.push({ role: 'assistant', content: payload.reply || 'Briefing atualizado.' });
-  if (payload.warning) messages.push({ role: 'assistant', content: `Aviso: ${payload.warning}` });
+  messages.push(newMessage('assistant', payload.reply || 'Briefing atualizado.'));
+  if (payload.warning) messages.push(newMessage('assistant', `Aviso: ${payload.warning}`));
   renderMessages();
   renderPreview();
 }
 
 async function reviseGeneratedTraining(text) {
-  messages.push({ role: 'user', content: text });
+  messages.push(newMessage('user', text));
   renderMessages();
   statusBox.textContent = 'Revisando o treinamento gerado e atualizando o arquivo...';
   resultBox.hidden = false;
@@ -518,8 +736,8 @@ async function reviseGeneratedTraining(text) {
     status: 'Pronto para nova revisão',
     url: payload.url
   });
-  messages.push({ role: 'assistant', content: payload.reply || 'Treinamento atualizado. Você pode pedir novas alterações antes de finalizar.' });
-  if (payload.warning) messages.push({ role: 'assistant', content: `Aviso: ${payload.warning}` });
+  messages.push(newMessage('assistant', payload.reply || 'Treinamento atualizado. Você pode pedir novas alterações antes de finalizar.'));
+  if (payload.warning) messages.push(newMessage('assistant', `Aviso: ${payload.warning}`));
   renderMessages();
 }
 
@@ -560,7 +778,7 @@ async function generateTraining() {
       status: 'Pronto para revisão',
       url: payload.url
     });
-    messages.push({ role: 'assistant', content: 'O treinamento foi criado. Você pode pedir alterações antes de finalizar. Sugestões: deixe mais prático, adicione uma dinâmica, reduza para oito slides ou inclua uma avaliação.' });
+    messages.push(newMessage('assistant', 'O treinamento foi criado. Você pode pedir alterações antes de finalizar. Sugestões: deixe mais prático, adicione uma dinâmica, reduza para oito slides ou inclua uma avaliação.'));
     renderMessages();
   } catch (error) {
     resultBox.className = 'result error';
@@ -571,8 +789,7 @@ async function generateTraining() {
 }
 
 function resetConversation() {
-  messages = [{ role: 'assistant', content: 'Qual treinamento você quer criar? Me diga o tema, o público e o principal objetivo.' }];
-  briefing = {};
+  messages = [newMessage('assistant', openingMessage)];
   draftPlan = null;
   generatedTraining = null;
   Object.values(fields).forEach((input) => { input.value = ''; });
@@ -592,7 +809,7 @@ composer.addEventListener('submit', async (event) => {
     if (generatedTraining?.file && draftPlan) await reviseGeneratedTraining(text);
     else await sendChat(text);
   } catch (error) {
-    messages.push({ role: 'assistant', content: `Erro: ${error.message}` });
+    messages.push(newMessage('assistant', `Erro: ${error.message}`));
     renderMessages();
   }
 });
@@ -611,7 +828,7 @@ thread.addEventListener('click', async (event) => {
     if (generatedTraining?.file && draftPlan) await reviseGeneratedTraining(chip.dataset.prompt);
     else await sendChat(chip.dataset.prompt);
   } catch (error) {
-    messages.push({ role: 'assistant', content: `Erro: ${error.message}` });
+    messages.push(newMessage('assistant', `Erro: ${error.message}`));
     renderMessages();
   }
 });
@@ -647,6 +864,17 @@ llmConfigBtn.addEventListener('click', openLlmModal);
 llmCloseBtn.addEventListener('click', closeLlmModal);
 llmCancelBtn.addEventListener('click', closeLlmModal);
 llmSlot.addEventListener('change', () => renderLlmConfig(llmSlot.value));
+llmApiUrl.addEventListener('input', refreshModelsUrlPreview);
+llmApiUrl.addEventListener('change', () => {
+  refreshModelsUrlPreview();
+  setModelOptions(suggestedModels(llmApiUrl.value), selectedModelValue());
+});
+llmModel.addEventListener('change', () => {
+  llmCustomModelWrap.hidden = llmModel.value !== '__custom';
+  if (llmModel.value === '__custom') llmCustomModel.focus();
+});
+llmNewApiBtn.addEventListener('click', prepareNewApiSlot);
+llmLoadModelsBtn.addEventListener('click', loadAvailableModels);
 llmForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   await saveLlmConfig();
@@ -660,8 +888,9 @@ accessForm.addEventListener('submit', async (event) => {
   button.disabled = true;
   button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Validando...';
   try {
-    if (!await validateAccessKey(key)) {
-      accessError.textContent = 'Chave invalida. Verifique e tente novamente.';
+    const result = await validateAccessKey(key);
+    if (!result.ok) {
+      accessError.textContent = result.reason;
       return;
     }
     generatorKey = key;
