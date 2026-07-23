@@ -89,6 +89,8 @@ LLM_MODEL=gpt-4.1-mini
 LLM_API_URL=https://api.openai.com/v1/chat/completions
 ```
 
+O gerador também possui uma tela de configuração com 5 slots de LLM. No Docker Desktop local, essa tela salva no `.env` montado no container. No Portainer, mantenha o volume do `.env` configurado no stack para permitir essa persistência.
+
 O gerador salva o HTML em `treinamentos/decks/<area>/` e atualiza `treinamentos/catalog.json`.
 
 ## Regra local

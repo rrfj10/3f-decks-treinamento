@@ -10,6 +10,17 @@ const draftBtn = document.getElementById('draftBtn');
 const fullscreenBtn = document.getElementById('fullscreenBtn');
 const sidebarCollapseBtn = document.getElementById('sidebarCollapseBtn');
 const themeBtn = document.getElementById('themeBtn');
+const llmConfigBtn = document.getElementById('llmConfigBtn');
+const llmModal = document.getElementById('llmModal');
+const llmForm = document.getElementById('llmForm');
+const llmCloseBtn = document.getElementById('llmCloseBtn');
+const llmCancelBtn = document.getElementById('llmCancelBtn');
+const llmSlot = document.getElementById('llmSlot');
+const llmLabel = document.getElementById('llmLabel');
+const llmApiKey = document.getElementById('llmApiKey');
+const llmModel = document.getElementById('llmModel');
+const llmApiUrl = document.getElementById('llmApiUrl');
+const llmStatus = document.getElementById('llmStatus');
 const statusBox = document.getElementById('statusBox');
 const statusTitle = document.getElementById('statusTitle');
 const statusCard = document.getElementById('statusCard');
@@ -51,6 +62,7 @@ let briefing = {};
 let draftPlan = null;
 let authRequired = false;
 let generatorKey = sessionStorage.getItem('3f-generator-key') || '';
+let llmConfig = { activeSlot: 1, slots: [] };
 
 function fallbackCatalogBase() {
   if (location.port === '8091' || location.port === '3000') return `${location.protocol}//${location.hostname}:8088`;
@@ -105,6 +117,84 @@ async function ensureAccess() {
   accessGate.hidden = false;
   accessKeyInput.focus();
   return false;
+}
+
+async function loadLlmConfig() {
+  const response = await fetch('/api/llm-config', {
+    headers: authHeaders(),
+    cache: 'no-store'
+  });
+  const payload = await response.json();
+  if (response.status === 401) resetAccess();
+  if (!response.ok) throw new Error(payload.error || 'Falha ao carregar configuração da LLM.');
+  llmConfig = payload;
+  renderLlmConfig(payload.activeSlot || 1);
+  return payload;
+}
+
+function renderLlmConfig(slotNumber) {
+  const slot = llmConfig.slots?.find((item) => item.slot === Number(slotNumber)) || {
+    slot: Number(slotNumber),
+    label: `API ${slotNumber}`,
+    model: 'gpt-4.1-mini',
+    apiUrl: 'https://api.openai.com/v1/chat/completions',
+    configured: false
+  };
+  llmSlot.value = String(slot.slot);
+  llmLabel.value = slot.label || `API ${slot.slot}`;
+  llmModel.value = slot.model || 'gpt-4.1-mini';
+  llmApiUrl.value = slot.apiUrl || 'https://api.openai.com/v1/chat/completions';
+  llmApiKey.value = '';
+  llmApiKey.placeholder = slot.configured ? 'Chave ja configurada. Deixe vazio para manter.' : 'Cole a chave da LLM';
+  llmStatus.textContent = slot.configured
+    ? `Slot ${slot.slot} configurado. Slot ativo atual: API ${llmConfig.activeSlot}.`
+    : `Slot ${slot.slot} ainda sem chave.`;
+}
+
+async function openLlmModal() {
+  if (!await ensureAccess()) return;
+  llmModal.hidden = false;
+  llmStatus.textContent = 'Carregando configuração...';
+  try {
+    await loadLlmConfig();
+  } catch (error) {
+    llmStatus.textContent = error.message;
+  }
+}
+
+function closeLlmModal() {
+  llmModal.hidden = true;
+}
+
+async function saveLlmConfig() {
+  const button = llmForm.querySelector('button[type="submit"]');
+  button.disabled = true;
+  button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+  llmStatus.textContent = 'Salvando no .env local...';
+  try {
+    const response = await fetch('/api/llm-config', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({
+        slot: llmSlot.value,
+        label: llmLabel.value,
+        apiKey: llmApiKey.value,
+        model: llmModel.value,
+        apiUrl: llmApiUrl.value
+      })
+    });
+    const payload = await response.json();
+    if (response.status === 401) resetAccess();
+    if (!response.ok) throw new Error(payload.error || 'Falha ao salvar configuração.');
+    llmConfig = payload;
+    renderLlmConfig(payload.activeSlot);
+    llmStatus.textContent = `API ${payload.activeSlot} salva e ativada. O gerador ja vai usar essa LLM.`;
+  } catch (error) {
+    llmStatus.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.innerHTML = '<i class="fas fa-floppy-disk"></i> Salvar e ativar';
+  }
 }
 
 function todayPtBr() {
@@ -396,6 +486,14 @@ sidebarCollapseBtn.addEventListener('click', () => {
   document.body.classList.toggle('sidebar-collapsed');
 });
 themeBtn.addEventListener('click', toggleTheme);
+llmConfigBtn.addEventListener('click', openLlmModal);
+llmCloseBtn.addEventListener('click', closeLlmModal);
+llmCancelBtn.addEventListener('click', closeLlmModal);
+llmSlot.addEventListener('change', () => renderLlmConfig(llmSlot.value));
+llmForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  await saveLlmConfig();
+});
 accessForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   accessError.textContent = '';

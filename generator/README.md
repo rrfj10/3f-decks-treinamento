@@ -70,6 +70,19 @@ Também aceita:
 OPENAI_API_KEY=<sua-chave>
 ```
 
+## Configurar LLM pela tela
+
+No gerador, clique no botão com ícone de plug na barra superior.
+
+A tela permite configurar até 5 APIs:
+
+- nome do slot;
+- chave da API;
+- modelo;
+- URL compatível com Chat Completions.
+
+Ao salvar, o backend atualiza o `.env` local e ativa o slot escolhido. A chave não é exibida novamente na tela.
+
 ## Saída
 
 O gerador salva:

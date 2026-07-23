@@ -115,6 +115,20 @@ body.sidebar-collapsed .module{justify-content:center;padding:14px 0}
 .access-form input:focus{outline:1px solid rgba(240,197,90,.45);border-color:rgba(240,197,90,.45)}
 .access-error{min-height:18px;color:var(--danger);font-size:12px}
 .access-gate[hidden]{display:none}
+.settings-modal{position:fixed;inset:0;z-index:460;display:grid;place-items:center;padding:24px;background:rgba(2,11,22,.76);backdrop-filter:blur(14px)}
+.settings-modal[hidden]{display:none}
+.settings-card{width:min(620px,100%);border:1px solid rgba(94,136,193,.28);border-radius:12px;background:linear-gradient(180deg,rgba(8,23,44,.96),rgba(2,13,27,.98));box-shadow:0 28px 80px rgba(0,0,0,.42);overflow:hidden}
+.settings-head{height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid rgba(255,255,255,.08)}
+.settings-head h2{font-family:'Orbitron',sans-serif;font-size:15px;text-transform:uppercase;color:var(--accent)}
+.settings-body{padding:18px;display:grid;gap:14px}
+.settings-grid{display:grid;grid-template-columns:140px 1fr;gap:12px}
+.field{display:grid;gap:7px}
+.field label{font-size:12px;font-weight:800;text-transform:uppercase;color:#AABCDD}
+.field input,.field select{height:42px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(255,255,255,.04);color:#fff;padding:0 13px;font:13px/1 'Montserrat',sans-serif}
+.field input:focus,.field select:focus{outline:1px solid rgba(240,197,90,.45);border-color:rgba(240,197,90,.45)}
+.settings-note{font-size:12px;line-height:1.5;color:#C4D7F3}
+.settings-status{min-height:18px;font-size:12px;color:#C4D7F3}
+.settings-actions{display:flex;justify-content:flex-end;gap:10px;padding:0 18px 18px}
 .hidden-fields{display:none}
 @media(max-width:1180px){body{overflow:auto}.app{height:auto;min-height:100vh;grid-template-columns:1fr}.sidebar{display:none}.main{height:auto;min-height:100vh;grid-template-rows:auto 1fr auto}.topbar{grid-template-columns:1fr;padding:16px}.top-actions{flex-wrap:wrap}.stage{grid-template-columns:1fr;overflow:visible}.left-stack{grid-template-rows:auto}.footerbar{display:none}}
 @media(max-width:680px){.stage{padding:10px}.btn{width:100%;min-height:40px}.counter{display:none}.top-actions{display:grid;grid-template-columns:1fr 1fr;width:100%}.brief-row{grid-template-columns:100px 1fr;font-size:12px}.composer{grid-template-columns:1fr}.icon-btn{display:none}.chat-card{height:70vh}.bubble{max-width:calc(100vw - 96px)}.chips{margin-left:0}.progress-line{grid-template-columns:1fr}}
@@ -133,6 +147,11 @@ body.light-mode .access-gate{background:rgba(244,247,251,.86)}
 body.light-mode .access-card{background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(235,242,250,.98));border-color:rgba(0,52,103,.2);box-shadow:0 28px 80px rgba(0,52,103,.18)}
 body.light-mode .access-card p{color:#37506F}
 body.light-mode .access-form input{background:rgba(0,52,103,.045);border-color:rgba(0,52,103,.16);color:#102033}
+body.light-mode .settings-modal{background:rgba(244,247,251,.78)}
+body.light-mode .settings-card{background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(235,242,250,.98));border-color:rgba(0,52,103,.2);box-shadow:0 28px 80px rgba(0,52,103,.18)}
+body.light-mode .settings-head{border-color:rgba(0,52,103,.12)}
+body.light-mode .settings-note,body.light-mode .settings-status,body.light-mode .field label{color:#37506F}
+body.light-mode .field input,body.light-mode .field select{background:rgba(0,52,103,.045);border-color:rgba(0,52,103,.16);color:#102033}
 body.light-mode .training-title,
 body.light-mode .peer,
 body.light-mode .panel h2,
@@ -265,6 +284,7 @@ color:var(--accent);
 <button class="btn" id="draftBtn" type="button"><i class="fas fa-keyboard"></i> Atalhos</button>
 <button class="btn" id="fullscreenBtn" type="button"><i class="fas fa-expand"></i> Tela Cheia</button>
 <button class="btn" id="resetBtn" type="button"><i class="fas fa-rotate-left"></i> Reiniciar</button>
+<button class="btn theme-toggle" id="llmConfigBtn" type="button" title="Configurar LLM" aria-label="Configurar LLM"><i class="fas fa-plug-circle-bolt"></i></button>
 <button class="btn primary" id="generateBtn" title="Informe os dados obrigatórios para continuar"><i class="fas fa-wand-magic-sparkles"></i> Gerar</button>
 <div class="counter" id="slideCount">0 slides</div>
 <button class="btn theme-toggle" id="themeBtn" type="button" title="Alternar tema" aria-label="Alternar tema"><i class="fas fa-sun"></i></button>
@@ -327,6 +347,54 @@ color:var(--accent);
 </section>
 </section>
 </main>
+<section class="settings-modal" id="llmModal" hidden>
+<article class="settings-card">
+<header class="settings-head">
+<h2><i class="fas fa-plug-circle-bolt"></i> Configuração da LLM</h2>
+<button class="btn theme-toggle" id="llmCloseBtn" type="button" title="Fechar" aria-label="Fechar"><i class="fas fa-xmark"></i></button>
+</header>
+<form id="llmForm">
+<div class="settings-body">
+<div class="settings-grid">
+<div class="field">
+<label for="llmSlot">API</label>
+<select id="llmSlot">
+<option value="1">API 1</option>
+<option value="2">API 2</option>
+<option value="3">API 3</option>
+<option value="4">API 4</option>
+<option value="5">API 5</option>
+</select>
+</div>
+<div class="field">
+<label for="llmLabel">Nome</label>
+<input id="llmLabel" placeholder="Ex.: OpenAI Produção">
+</div>
+</div>
+<div class="field">
+<label for="llmApiKey">Chave da API</label>
+<input id="llmApiKey" type="password" autocomplete="off" placeholder="Cole a chave da LLM">
+</div>
+<div class="settings-grid">
+<div class="field">
+<label for="llmModel">Modelo</label>
+<input id="llmModel" placeholder="gpt-4.1-mini">
+</div>
+<div class="field">
+<label for="llmApiUrl">URL da API</label>
+<input id="llmApiUrl" placeholder="https://api.openai.com/v1/chat/completions">
+</div>
+</div>
+<p class="settings-note">A configuração será salva no arquivo `.env` local. A chave não aparece de volta na tela depois de salva; se o slot já estiver configurado, deixe o campo de chave vazio para manter a chave atual.</p>
+<div class="settings-status" id="llmStatus" aria-live="polite"></div>
+</div>
+<div class="settings-actions">
+<button class="btn" type="button" id="llmCancelBtn"><i class="fas fa-xmark"></i> Cancelar</button>
+<button class="btn primary" type="submit"><i class="fas fa-floppy-disk"></i> Salvar e ativar</button>
+</div>
+</form>
+</article>
+</section>
 <script src="app.js"></script>
 </body>
 </html>

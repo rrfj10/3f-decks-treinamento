@@ -1,19 +1,26 @@
 import http from 'node:http';
 import { readFile, writeFile, mkdir, stat, readdir } from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
+import { createReadStream, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
+const envPath = path.resolve(__dirname, '..', '.env');
+let envFileValues = {};
+try {
+  envFileValues = parseEnv(readFileSync(envPath, 'utf8'));
+} catch {
+  envFileValues = {};
+}
 const trainingRoot = path.resolve(process.env.TRAINING_ROOT || path.join(__dirname, '..', 'treinamentos'));
 const deckRoot = path.join(trainingRoot, 'decks');
 const catalogPath = path.join(trainingRoot, 'catalog.json');
 const port = Number(process.env.PORT || 3000);
-const catalogBaseUrl = process.env.CATALOG_BASE_URL || '';
-const requireAuth = String(process.env.GENERATOR_REQUIRE_AUTH ?? 'true').toLowerCase() !== 'false';
-const generatorApiKey = (process.env.GENERATOR_API_KEY || '').trim();
+const catalogBaseUrl = process.env.CATALOG_BASE_URL || envFileValues.CATALOG_BASE_URL || '';
+const requireAuth = String(process.env.GENERATOR_REQUIRE_AUTH ?? envFileValues.GENERATOR_REQUIRE_AUTH ?? 'true').toLowerCase() !== 'false';
+const generatorApiKey = (process.env.GENERATOR_API_KEY || envFileValues.GENERATOR_API_KEY || '').trim();
 const briefingLabelPattern = /^(titulo|título|nome do treinamento|tema|assunto|area|área|setor|publico|público|audiencia|audiência|objetivo|foco|duracao|duração|tempo|nivel|nível|conhecimento|tom|linguagem|quantidade de slides|qtd slides|slides|topicos|tópicos|atividade|dinamica|dinâmica|pratica|prática|avaliacao|avaliação|prova|quiz)\s*:/i;
 
 if (requireAuth && !generatorApiKey) {
@@ -94,6 +101,118 @@ async function readCatalog() {
   }
 }
 
+async function readEnvFile() {
+  try {
+    return await readFile(envPath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function parseEnv(content) {
+  return Object.fromEntries(content.split(/\r?\n/).map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) return null;
+    const index = trimmed.indexOf('=');
+    return [trimmed.slice(0, index), trimmed.slice(index + 1)];
+  }).filter(Boolean));
+}
+
+function serializeEnv(values) {
+  const ordered = [
+    'CATALOG_BASE_URL',
+    'GENERATOR_REQUIRE_AUTH',
+    'GENERATOR_API_KEY',
+    'LLM_ACTIVE_SLOT',
+    'LLM_MODEL',
+    'LLM_API_URL',
+    'LLM_API_KEY',
+    'OPENAI_API_KEY'
+  ];
+  for (let index = 1; index <= 5; index += 1) {
+    ordered.push(
+      `LLM_SLOT_${index}_LABEL`,
+      `LLM_SLOT_${index}_MODEL`,
+      `LLM_SLOT_${index}_API_URL`,
+      `LLM_SLOT_${index}_API_KEY`
+    );
+  }
+  const lines = [];
+  for (const key of ordered) {
+    if (Object.prototype.hasOwnProperty.call(values, key)) lines.push(`${key}=${values[key] ?? ''}`);
+  }
+  for (const [key, value] of Object.entries(values)) {
+    if (!ordered.includes(key)) lines.push(`${key}=${value ?? ''}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+async function readLlmConfig() {
+  const envValues = parseEnv(await readEnvFile());
+  const activeSlot = Number(process.env.LLM_ACTIVE_SLOT || envValues.LLM_ACTIVE_SLOT || 1);
+  const slots = Array.from({ length: 5 }, (_, offset) => {
+    const slot = offset + 1;
+    const label = envValues[`LLM_SLOT_${slot}_LABEL`] || `API ${slot}`;
+    const model = envValues[`LLM_SLOT_${slot}_MODEL`] || envValues.LLM_MODEL || 'gpt-4.1-mini';
+    const apiUrl = envValues[`LLM_SLOT_${slot}_API_URL`] || envValues.LLM_API_URL || 'https://api.openai.com/v1/chat/completions';
+    const apiKey = envValues[`LLM_SLOT_${slot}_API_KEY`] || '';
+    return { slot, label, model, apiUrl, configured: Boolean(apiKey) };
+  });
+  const active = slots.find((item) => item.slot === activeSlot) || slots[0];
+  const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || envValues.LLM_API_KEY || envValues.OPENAI_API_KEY || envValues[`LLM_SLOT_${active.slot}_API_KEY`] || '';
+  return {
+    activeSlot: active.slot,
+    slots,
+    configured: Boolean(apiKey),
+    model: process.env.LLM_MODEL || envValues.LLM_MODEL || active.model,
+    apiUrl: process.env.LLM_API_URL || envValues.LLM_API_URL || active.apiUrl
+  };
+}
+
+async function readLlmRuntimeConfig() {
+  const envValues = parseEnv(await readEnvFile());
+  const activeSlot = Number(process.env.LLM_ACTIVE_SLOT || envValues.LLM_ACTIVE_SLOT || 1);
+  return {
+    apiKey: process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || envValues.LLM_API_KEY || envValues.OPENAI_API_KEY || envValues[`LLM_SLOT_${activeSlot}_API_KEY`] || '',
+    model: process.env.LLM_MODEL || envValues.LLM_MODEL || envValues[`LLM_SLOT_${activeSlot}_MODEL`] || 'gpt-4.1-mini',
+    apiUrl: process.env.LLM_API_URL || envValues.LLM_API_URL || envValues[`LLM_SLOT_${activeSlot}_API_URL`] || 'https://api.openai.com/v1/chat/completions'
+  };
+}
+
+async function saveLlmConfig(input) {
+  const slot = Math.min(5, Math.max(1, Number(input.slot || 1)));
+  const label = String(input.label || `API ${slot}`).trim() || `API ${slot}`;
+  const envValues = parseEnv(await readEnvFile());
+  const existingKey = envValues[`LLM_SLOT_${slot}_API_KEY`] || '';
+  const apiKey = String(input.apiKey || '').trim() || existingKey;
+  const model = String(input.model || 'gpt-4.1-mini').trim();
+  const apiUrl = String(input.apiUrl || 'https://api.openai.com/v1/chat/completions').trim();
+  if (!apiKey) throw new Error('Informe a chave da LLM.');
+  if (!model) throw new Error('Informe o modelo da LLM.');
+  if (!/^https?:\/\//i.test(apiUrl)) throw new Error('A URL da API precisa iniciar com http:// ou https://.');
+
+  const values = {
+    ...envValues,
+    LLM_ACTIVE_SLOT: String(slot),
+    LLM_API_KEY: apiKey,
+    OPENAI_API_KEY: '',
+    LLM_MODEL: model,
+    LLM_API_URL: apiUrl,
+    [`LLM_SLOT_${slot}_LABEL`]: label,
+    [`LLM_SLOT_${slot}_API_KEY`]: apiKey,
+    [`LLM_SLOT_${slot}_MODEL`]: model,
+    [`LLM_SLOT_${slot}_API_URL`]: apiUrl
+  };
+  await writeFile(envPath, serializeEnv(values));
+  envFileValues = values;
+  process.env.LLM_ACTIVE_SLOT = String(slot);
+  process.env.LLM_API_KEY = apiKey;
+  process.env.OPENAI_API_KEY = '';
+  process.env.LLM_MODEL = model;
+  process.env.LLM_API_URL = apiUrl;
+  return readLlmConfig();
+}
+
 async function writeCatalog(entry) {
   const catalog = await readCatalog();
   const existing = catalog.trainings.filter((item) => item.file !== entry.file);
@@ -147,11 +266,9 @@ function fallbackPlan(input) {
 }
 
 async function llmPlan(input) {
-  const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY;
+  const { apiKey, apiUrl, model } = await readLlmRuntimeConfig();
   if (!apiKey) return { plan: fallbackPlan(input), mode: 'fallback', warning: 'LLM_API_KEY/OPENAI_API_KEY nao configurada.' };
 
-  const apiUrl = process.env.LLM_API_URL || 'https://api.openai.com/v1/chat/completions';
-  const model = process.env.LLM_MODEL || 'gpt-4.1-mini';
   const schemaInstruction = `Responda apenas JSON valido, sem markdown. Schema:
 {"title":"string","area":"string","subtitle":"string","objective":"string","slides":[{"type":"cover|cards|checklist|flow|table|closing","title":"string","subtitle":"string","lead":"string","items":[{"icon":"fa-name","title":"string","text":"string"}],"rows":[["col1","col2"]]}]}`;
 
@@ -261,7 +378,7 @@ async function chatWithAssistant(input) {
   const messages = Array.isArray(input.messages) ? input.messages.slice(-20) : [];
   const briefing = extractBriefingFromMessages(messages, input.briefing || {});
   const draftPlan = fallbackPlan(briefing);
-  const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY;
+  const { apiKey, apiUrl, model } = await readLlmRuntimeConfig();
 
   if (!apiKey) {
     return {
@@ -273,8 +390,6 @@ async function chatWithAssistant(input) {
     };
   }
 
-  const apiUrl = process.env.LLM_API_URL || 'https://api.openai.com/v1/chat/completions';
-  const model = process.env.LLM_MODEL || 'gpt-4.1-mini';
   const system = `Voce e um consultor de design instrucional da 3F Contact Center.
 Ajude o usuario a refinar o briefing de um treinamento corporativo.
 Responda apenas JSON valido com este schema:
@@ -536,6 +651,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/catalog') return json(res, 200, await readCatalog());
     if (req.method === 'GET' && url.pathname === '/api/config') return json(res, 200, { catalogBaseUrl, authRequired: requireAuth });
     if (req.method === 'POST' && url.pathname === '/api/validate-key') return json(res, hasValidGeneratorKey(req) ? 200 : 401, hasValidGeneratorKey(req) ? { ok: true } : { error: 'Chave de acesso invalida.' });
+    if (req.method === 'GET' && url.pathname === '/api/llm-config') {
+      if (!requireGeneratorKey(req, res)) return;
+      return json(res, 200, await readLlmConfig());
+    }
+    if (req.method === 'POST' && url.pathname === '/api/llm-config') {
+      if (!requireGeneratorKey(req, res)) return;
+      return json(res, 200, await saveLlmConfig(await readBody(req)));
+    }
     if (req.method === 'POST' && url.pathname === '/api/chat') {
       if (!requireGeneratorKey(req, res)) return;
       return json(res, 200, await chatWithAssistant(await readBody(req)));
