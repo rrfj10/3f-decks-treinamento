@@ -60,9 +60,10 @@ body.sidebar-collapsed .module i:before{display:grid;width:22px;height:22px;plac
 .stage{min-height:0;padding:14px 22px 10px;display:grid;grid-template-columns:480px minmax(0,1fr);gap:10px;overflow:hidden}
 .left-stack{min-height:0;display:grid;grid-template-rows:auto 1fr auto;gap:10px;overflow:hidden}
 .panel,.chat-card,.status-card{border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,rgba(8,23,44,.82),rgba(2,13,27,.86));box-shadow:0 18px 60px rgba(0,0,0,.22);overflow:hidden}
+.panel{min-height:0;display:flex;flex-direction:column}
 .panel-head,.chat-head{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 15px;border-bottom:1px solid rgba(255,255,255,.08);color:#65B6FF}
 .panel h2{font-family:'Orbitron',sans-serif;font-size:14px;text-transform:uppercase;letter-spacing:0}
-.panel-body{padding:13px 15px}
+.panel-body{padding:13px 15px;min-height:0;overflow:auto}
 .brief-list{display:grid;gap:8px}
 .brief-row{display:grid;grid-template-columns:140px 1fr;gap:10px;font-size:13px;line-height:1.35}
 .brief-row span{color:#DDEAFF}
@@ -365,7 +366,7 @@ color:var(--accent);
 
 <section class="hidden-fields">
 <a href="http://localhost:8088" id="catalogLinkBottom"></a>
-<input id="title"><input id="theme"><input id="area"><input id="audience"><input id="objective"><input id="duration"><input id="level"><input id="tone"><input id="slideTarget"><input id="practice"><input id="evaluation"><textarea id="description"></textarea>
+<input id="title"><input id="theme"><input id="area"><input id="audience"><input id="objective"><input id="duration"><input id="level"><input id="tone"><input id="slideTarget"><input id="practice"><input id="evaluation"><input id="operationType"><input id="kpiTarget"><input id="operationalPain"><input id="behaviorChange"><input id="learningEvidence"><textarea id="description"></textarea>
 </section>
 </section>
 </main>

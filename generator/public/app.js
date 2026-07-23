@@ -49,6 +49,11 @@ const fields = {
   slideTarget: document.getElementById('slideTarget'),
   practice: document.getElementById('practice'),
   evaluation: document.getElementById('evaluation'),
+  operationType: document.getElementById('operationType'),
+  kpiTarget: document.getElementById('kpiTarget'),
+  operationalPain: document.getElementById('operationalPain'),
+  behaviorChange: document.getElementById('behaviorChange'),
+  learningEvidence: document.getElementById('learningEvidence'),
   description: document.getElementById('description')
 };
 
@@ -282,16 +287,16 @@ function chipsForState(data, missing, hasSlides) {
     return [
       ['Organizar em slides', 'Me ajude a organizar esses tópicos em slides.'],
       ['Sugerir estrutura', 'Sugira uma estrutura com capa, módulos e encerramento.'],
-      ['Ver informações necessárias', 'Quais informações você precisa para criar um bom treinamento?'],
+      ['Ver informações necessárias', 'Quais informações você precisa para criar um bom treinamento operacional?'],
       ['Criar treinamento rápido', 'Quero criar um treinamento rápido. Me faça as perguntas essenciais.']
     ];
   }
   if (missing.length) {
     return [
       ['Ver informações faltantes', 'Quais informações ainda faltam?'],
-      ['Melhorar objetivo', 'Me ajude a melhorar o objetivo do treinamento.'],
+      ['Definir KPI', 'Me ajude a definir o KPI impactado por esse treinamento.'],
       ['Definir público', 'Me ajude a definir o público-alvo.'],
-      ['Sugerir duração', 'Sugira uma duração adequada para esse treinamento.']
+      ['Comportamento esperado', 'Me ajude a escrever o comportamento esperado após o treinamento.']
     ];
   }
   if (hasSlides) {
@@ -305,7 +310,7 @@ function chipsForState(data, missing, hasSlides) {
   return [
     ['Revisar roteiro', 'Revise o roteiro e a ordem dos slides.'],
     ['Melhorar o tom', 'Deixe o treinamento mais prático e profissional.'],
-    ['Adicionar atividade prática', 'Adicione uma dinâmica em grupo.'],
+    ['Adicionar atividade prática', 'Adicione uma dinâmica baseada em cenário de atendimento.'],
     ['Gerar treinamento', 'O briefing está pronto. Quero gerar o treinamento.']
   ];
 }
@@ -326,21 +331,33 @@ function renderMessages() {
 }
 
 function estimatedSlides(data) {
-  return draftPlan?.slides || dedupeDescription(data.description).split(/\n+/).filter(Boolean).map((title, index) => ({ title, type: index % 2 ? 'cards' : 'checklist' }));
+  if (draftPlan?.slides) return draftPlan.slides;
+  const described = dedupeDescription(data.description).split(/\n+/).filter(Boolean);
+  const fallback = described.length ? described : [
+    'Contexto da operação',
+    'Problema ou risco atual',
+    'Indicadores impactados',
+    'Conduta esperada',
+    'Exemplo prático',
+    'Boas práticas',
+    'Atividade ou simulação',
+    'Checagem de aprendizado'
+  ];
+  return fallback.map((title, index) => ({ title, type: index % 2 ? 'cards' : 'checklist' }));
 }
 
 function missingRequired(data) {
   const missing = [];
-  if (!data.title) missing.push('título');
+  if (!data.title && !data.theme) missing.push('título ou tema');
   if (!data.audience) missing.push('público-alvo');
   if (!data.objective) missing.push('objetivo');
   if (!data.duration) missing.push('duração');
-  if (estimatedSlides(data).length < 3) missing.push('ao menos 3 tópicos');
+  if (!data.kpiTarget && !data.behaviorChange) missing.push('KPI impactado ou comportamento esperado');
   return missing;
 }
 
 function completeness(data) {
-  const keys = ['title', 'theme', 'area', 'audience', 'objective', 'duration', 'level', 'tone', 'description'];
+  const keys = ['title', 'theme', 'area', 'audience', 'objective', 'duration', 'level', 'tone', 'operationType', 'kpiTarget', 'operationalPain', 'behaviorChange', 'learningEvidence', 'description'];
   const filled = keys.filter((key) => data[key]).length;
   return Math.round((filled / keys.length) * 100);
 }
@@ -354,20 +371,28 @@ function renderBriefing(data) {
     ['Objetivo', data.objective],
     ['Duração', data.duration],
     ['Nível', data.level],
-    ['Tom', data.tone]
+    ['Tom', data.tone],
+    ['Operação', data.operationType],
+    ['KPI impactado', data.kpiTarget],
+    ['Dor operacional', data.operationalPain],
+    ['Comportamento', data.behaviorChange],
+    ['Evidência', data.learningEvidence]
   ];
   briefingPanel.innerHTML = rows.map(([label, value]) => `<div class="brief-row"><span>${label}</span><button class="${value ? 'filled' : 'missing'}" data-field-label="${label}" title="Clique para corrigir ${escapeHtml(label.toLowerCase())}"><b>${escapeHtml(value || 'Ainda não informado')}</b><i class="fas ${value ? 'fa-pen' : 'fa-plus'}"></i></button></div>`).join('');
 }
 
 function renderRoute(data) {
   const slides = estimatedSlides(data);
+  const descriptionText = String(data.description || '');
   slideCount.textContent = `${slides.length || 0} slides`;
   routeDuration.textContent = `Duração estimada: ${data.duration || '--'}`;
   slidesPreview.innerHTML = slides.length ? slides.slice(0, 10).map((slide, index) => `<div class="slide-row"><div class="slide-num">${index + 1}</div><strong>${escapeHtml(slide.title)}</strong></div>`).join('') : '<div class="slide-row"><div class="slide-num">--</div><strong>Aguardando tópicos do treinamento</strong></div>';
   const flags = [
-    ['Atividade prática', data.practice || (data.description.toLowerCase().includes('atividade') ? 'Sim' : 'Não')],
-    ['Avaliação', data.evaluation || (data.description.toLowerCase().includes('avalia') ? 'Sim' : 'Não')],
-    ['Exemplos', data.description.toLowerCase().includes('exemplo') ? 'Sim' : 'Não']
+    ['Atividade prática', data.practice || (descriptionText.toLowerCase().includes('atividade') ? 'Sim' : 'Não')],
+    ['Avaliação', data.evaluation || (descriptionText.toLowerCase().includes('avalia') ? 'Sim' : 'Não')],
+    ['Exemplos', descriptionText.toLowerCase().includes('exemplo') ? 'Sim' : 'Não'],
+    ['KPI', data.kpiTarget ? data.kpiTarget : 'Pendente'],
+    ['Comportamento', data.behaviorChange ? 'Definido' : 'Pendente']
   ];
   slidesPreview.innerHTML += `<div class="flags">${flags.map(([label, value]) => `<div class="flag"><span>${label}</span><b>${escapeHtml(value)}</b></div>`).join('')}</div>`;
 }
@@ -385,7 +410,7 @@ function renderStatus(data) {
   statusTitle.textContent = missing.length ? 'Faltam informações' : 'Pronto para gerar';
   statusBox.textContent = missing.length
     ? `Precisamos definir ${missing.join(', ')}.`
-    : 'O briefing e o roteiro possuem as informações necessárias.';
+    : 'O briefing possui público, objetivo, duração e impacto operacional mínimo para gerar.';
 }
 
 function renderPreview() {

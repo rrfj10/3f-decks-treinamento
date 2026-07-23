@@ -21,7 +21,7 @@ const port = Number(process.env.PORT || 3000);
 const catalogBaseUrl = process.env.CATALOG_BASE_URL || envFileValues.CATALOG_BASE_URL || '';
 const requireAuth = String(process.env.GENERATOR_REQUIRE_AUTH ?? envFileValues.GENERATOR_REQUIRE_AUTH ?? 'true').toLowerCase() !== 'false';
 const generatorApiKey = (process.env.GENERATOR_API_KEY || envFileValues.GENERATOR_API_KEY || '').trim();
-const briefingLabelPattern = /^(titulo|título|nome do treinamento|tema|assunto|area|área|setor|publico|público|audiencia|audiência|objetivo|foco|duracao|duração|tempo|nivel|nível|conhecimento|tom|linguagem|quantidade de slides|qtd slides|slides|topicos|tópicos|atividade|dinamica|dinâmica|pratica|prática|avaliacao|avaliação|prova|quiz)\s*:/i;
+const briefingLabelPattern = /^(titulo|título|nome do treinamento|tema|assunto|area|área|setor|publico|público|audiencia|audiência|objetivo|foco|duracao|duração|tempo|nivel|nível|conhecimento|tom|linguagem|quantidade de slides|qtd slides|slides|topicos|tópicos|atividade|dinamica|dinâmica|pratica|prática|avaliacao|avaliação|prova|quiz|tipo de operação|tipo de operacao|operação|operacao|kpi|indicador|dor operacional|problema operacional|impacto operacional|comportamento esperado|mudança esperada|mudanca esperada|evidência|evidencia|aprendizado)\s*:/i;
 
 if (requireAuth && !generatorApiKey) {
   throw new Error('GENERATOR_API_KEY precisa estar configurada quando GENERATOR_REQUIRE_AUTH=true.');
@@ -103,6 +103,67 @@ function mergeDescription(current, next) {
     }
   }
   return lines.join('\n');
+}
+
+function firstKeywordMatch(text, groups) {
+  const normalized = comparableText(text);
+  for (const group of groups) {
+    if (group.terms.some((term) => normalized.includes(comparableText(term)))) return group.value;
+  }
+  return '';
+}
+
+function inferOperationalBriefing(messages) {
+  const text = messages
+    .filter((message) => message.role === 'user')
+    .map((message) => message.content || '')
+    .join('\n');
+
+  const operationType = firstKeywordMatch(text, [
+    { value: 'SAC', terms: ['sac', 'atendimento receptivo', 'receptivo', 'cliente liga'] },
+    { value: 'Televendas', terms: ['televendas', 'vendas', 'conversao', 'conversão', 'vph', 'campanha ativa'] },
+    { value: 'Retenção', terms: ['retencao', 'retenção', 'churn', 'cancelamento', 'reversao'] },
+    { value: 'Cobrança', terms: ['cobranca', 'cobrança', 'inadimplencia', 'inadimplência', 'negociacao'] },
+    { value: 'Suporte', terms: ['suporte', 'help desk', 'tecnico', 'técnico'] },
+    { value: 'NOC', terms: ['noc', 'tempo real', 'fila atual', 'degradacao', 'degradação'] },
+    { value: 'MIS', terms: ['mis', 'relatorio', 'relatório', 'indicadores', 'dashboard', 'bi'] },
+    { value: 'Planejamento', terms: ['planejamento', 'forecast', 'escala', 'dimensionamento', 'wfm'] },
+    { value: 'Qualidade', terms: ['qualidade', 'monitoria', 'nota de monitoria', 'fcr', 'csat', 'rechamada'] },
+    { value: 'RH', terms: ['rh', 'feedback', 'desenvolvimento', 'treinamento comportamental'] },
+    { value: 'Liderança', terms: ['lideranca', 'liderança', 'supervisor', 'coordenador', 'gestor'] }
+  ]);
+
+  const kpiTarget = firstKeywordMatch(text, [
+    { value: 'NS / Nível de Serviço', terms: ['nivel de servico', 'nível de serviço', 'ns', 'sla'] },
+    { value: 'TMA', terms: ['tma', 'tempo medio de atendimento', 'tempo médio de atendimento'] },
+    { value: 'TME', terms: ['tme', 'tempo medio de espera', 'tempo médio de espera', 'fila'] },
+    { value: 'Taxa de Abandono', terms: ['abandono', 'abandonadas'] },
+    { value: 'Aderência', terms: ['aderencia', 'aderência', 'escala'] },
+    { value: 'Absenteísmo', terms: ['absenteismo', 'absenteísmo', 'faltas', 'atrasos'] },
+    { value: 'Qualidade / Monitoria', terms: ['qualidade', 'monitoria', 'nota'] },
+    { value: 'Conversão', terms: ['conversao', 'conversão', 'vendas', 'vph'] },
+    { value: 'Retenção', terms: ['retencao', 'retenção', 'churn', 'cancelamento'] },
+    { value: 'Retrabalho / Rechamada', terms: ['retrabalho', 'rechamada', 'recontato', 'fcr'] },
+    { value: 'Governança', terms: ['governanca', 'governança', 'auditoria', 'aprovacao', 'aprovação'] }
+  ]);
+
+  const operationalPain = firstKeywordMatch(text, [
+    { value: 'Fila e espera acima do desejado', terms: ['fila', 'espera', 'tme'] },
+    { value: 'Atendimentos longos ou pouco objetivos', terms: ['tma', 'demora', 'atendimento longo'] },
+    { value: 'Queda de qualidade ou falha de procedimento', terms: ['qualidade', 'monitoria', 'procedimento', 'erro'] },
+    { value: 'Baixa conversão comercial', terms: ['conversao', 'conversão', 'vendas'] },
+    { value: 'Risco de governança e rastreabilidade', terms: ['governanca', 'governança', 'auditoria', 'rastreabilidade'] },
+    { value: 'Baixa aderência à escala', terms: ['aderencia', 'aderência', 'escala'] },
+    { value: 'Falta de alinhamento comportamental', terms: ['feedback', 'lideranca', 'liderança', 'comportamento'] }
+  ]);
+
+  const inferred = {};
+  if (operationType) inferred.operationType = operationType;
+  if (kpiTarget) inferred.kpiTarget = kpiTarget;
+  if (operationalPain) inferred.operationalPain = operationalPain;
+  if (/roleplay|simula|dinamica|dinâmica|atividade|pratica|prática|exercicio|exercício/i.test(text)) inferred.practice = 'Sim';
+  if (/quiz|prova|avaliacao|avaliação|checagem|certifica/i.test(text)) inferred.evaluation = 'Sim';
+  return inferred;
 }
 
 function normalizeBriefing(briefing = {}) {
@@ -267,21 +328,29 @@ async function writeCatalog(entry) {
 }
 
 function fallbackPlan(input) {
-  const title = input.title?.trim() || 'Novo Treinamento';
-  const area = input.area?.trim() || 'geral';
+  const title = input.title?.trim() || input.theme?.trim() || 'Novo Treinamento';
+  const area = input.area?.trim() || input.operationType?.trim() || 'geral';
   const audience = input.audience?.trim() || 'operação interna';
   const objective = input.objective?.trim() || 'Padronizar conhecimento e orientar a execução.';
-  const raw = input.description?.trim() || 'Apresente os principais conceitos, boas práticas e fechamento.';
+  const kpiTarget = input.kpiTarget?.trim() || 'Indicador operacional definido no briefing';
+  const operationalPain = input.operationalPain?.trim() || 'Necessidade de padronizar a execução';
+  const behaviorChange = input.behaviorChange?.trim() || 'Aplicar o processo com mais clareza, consistência e responsabilidade.';
+  const learningEvidence = input.learningEvidence?.trim() || input.evaluation?.trim() || 'Checagem final de entendimento';
+  const raw = input.description?.trim() || '';
   const topics = raw.split(/\n+/)
     .map((line) => line.replace(/^[-*\d. )]+/, '').trim())
     .filter((line) => line && !briefingLabelPattern.test(line))
     .slice(0, 8);
   const core = topics.length ? topics : [
-    'Contexto e importância do tema',
-    'Principais conceitos',
-    'Passo a passo operacional',
+    'Contexto da operação',
+    'Problema ou risco atual',
+    'Indicadores impactados',
+    'Conduta ou processo esperado',
+    'Exemplo prático',
+    'Erros comuns',
     'Boas práticas',
-    'Dúvidas frequentes'
+    'Atividade ou simulação',
+    'Checagem de aprendizado'
   ];
 
   return normalizePlan({
@@ -289,12 +358,22 @@ function fallbackPlan(input) {
     area,
     subtitle: `Treinamento para ${audience}`,
     objective,
+    operationType: input.operationType || area,
+    kpiTarget,
+    operationalPain,
+    behaviorChange,
+    learningEvidence,
     slides: [
       { type: 'cover', title, subtitle: objective },
       { type: 'cards', title: 'Objetivos do treinamento', items: [
         { icon: 'fa-bullseye', title: 'Clareza', text: objective },
         { icon: 'fa-users', title: 'Público', text: audience },
         { icon: 'fa-circle-check', title: 'Aplicação', text: 'Transformar conteúdo em rotina prática.' }
+      ] },
+      { type: 'cards', title: 'Impacto operacional', lead: 'Conecte o treinamento com a rotina e os indicadores acompanhados pela liderança.', items: [
+        { icon: 'fa-chart-line', title: 'KPI impactado', text: kpiTarget },
+        { icon: 'fa-triangle-exclamation', title: 'Dor operacional', text: operationalPain },
+        { icon: 'fa-user-check', title: 'Comportamento esperado', text: behaviorChange }
       ] },
       ...core.map((topic, index) => ({
         type: index % 3 === 0 ? 'checklist' : index % 3 === 1 ? 'cards' : 'flow',
@@ -306,7 +385,7 @@ function fallbackPlan(input) {
           { icon: 'fa-triangle-exclamation', title: 'Evitar', text: 'Erros comuns e pontos de atenção.' }
         ]
       })),
-      { type: 'closing', title: 'Encerramento', subtitle: 'Revise os pontos principais e alinhe dúvidas antes de aplicar na operação.' }
+      { type: 'closing', title: 'Encerramento', subtitle: `Evidência de aprendizado: ${learningEvidence}. Revise os pontos principais e alinhe dúvidas antes de aplicar na operação.` }
     ]
   });
 }
@@ -316,13 +395,13 @@ async function llmPlan(input) {
   if (!apiKey) return { plan: fallbackPlan(input), mode: 'fallback', warning: 'LLM_API_KEY/OPENAI_API_KEY nao configurada.' };
 
   const schemaInstruction = `Responda apenas JSON valido, sem markdown. Schema:
-{"title":"string","area":"string","subtitle":"string","objective":"string","slides":[{"type":"cover|cards|checklist|flow|table|closing","title":"string","subtitle":"string","lead":"string","items":[{"icon":"fa-name","title":"string","text":"string"}],"rows":[["col1","col2"]]}]}`;
+{"title":"string","area":"string","subtitle":"string","objective":"string","operationType":"string","kpiTarget":"string","operationalPain":"string","behaviorChange":"string","learningEvidence":"string","slides":[{"type":"cover|cards|checklist|flow|table|closing","title":"string","subtitle":"string","lead":"string","items":[{"icon":"fa-name","title":"string","text":"string"}],"rows":[["col1","col2"]]}]}`;
 
   const payload = {
     model,
     temperature: 0.35,
     messages: [
-      { role: 'system', content: `Voce cria roteiros de treinamentos corporativos em pt-BR para decks HTML da 3F Contact Center. ${schemaInstruction}` },
+      { role: 'system', content: `Voce cria roteiros de treinamentos corporativos em pt-BR para decks HTML da 3F Contact Center. Para temas de contact center, conecte o conteudo a tipo de operacao, KPI, dor operacional, comportamento esperado, pratica e evidencia de aprendizado. ${schemaInstruction}` },
       { role: 'user', content: JSON.stringify(input, null, 2) }
     ]
   };
@@ -363,6 +442,11 @@ function extractBriefingFromMessages(messages, currentBriefing = {}) {
     slideTarget: currentBriefing.slideTarget || '',
     practice: currentBriefing.practice || '',
     evaluation: currentBriefing.evaluation || '',
+    operationType: currentBriefing.operationType || '',
+    kpiTarget: currentBriefing.kpiTarget || '',
+    operationalPain: currentBriefing.operationalPain || '',
+    behaviorChange: currentBriefing.behaviorChange || '',
+    learningEvidence: currentBriefing.learningEvidence || '',
     description: currentBriefing.description || ''
   });
 
@@ -377,7 +461,12 @@ function extractBriefingFromMessages(messages, currentBriefing = {}) {
     ['tone', /(?:tom|linguagem)[ \t]*[:=-][ \t]*([^\n]+)/i],
     ['slideTarget', /(?:quantidade de slides|qtd slides)[ \t]*[:=-][ \t]*([^\n]+)/i],
     ['practice', /(?:atividade|dinamica|dinâmica|pratica|prática)[ \t]*[:=-][ \t]*([^\n]+)/i],
-    ['evaluation', /(?:avaliacao|avaliação|prova|quiz)[ \t]*[:=-][ \t]*([^\n]+)/i]
+    ['evaluation', /(?:avaliacao|avaliação|prova|quiz)[ \t]*[:=-][ \t]*([^\n]+)/i],
+    ['operationType', /(?:tipo de operação|tipo de operacao|operação|operacao)[ \t]*[:=-][ \t]*([^\n]+)/i],
+    ['kpiTarget', /(?:kpi|indicador|indicador impactado)[ \t]*[:=-][ \t]*([^\n]+)/i],
+    ['operationalPain', /(?:dor operacional|problema operacional|impacto operacional)[ \t]*[:=-][ \t]*([^\n]+)/i],
+    ['behaviorChange', /(?:comportamento esperado|mudança esperada|mudanca esperada)[ \t]*[:=-][ \t]*([^\n]+)/i],
+    ['learningEvidence', /(?:evidência|evidencia|evidência de aprendizado|evidencia de aprendizado|aprendizado)[ \t]*[:=-][ \t]*([^\n]+)/i]
   ];
 
   for (const [key, pattern] of patterns) {
@@ -388,7 +477,13 @@ function extractBriefingFromMessages(messages, currentBriefing = {}) {
     }
   }
 
+  const inferred = inferOperationalBriefing(messages);
+  for (const [key, value] of Object.entries(inferred)) {
+    if (!briefing[key]) briefing[key] = value;
+  }
+
   if (!briefing.title && lines.length) briefing.title = lines[0].slice(0, 80);
+  if (!briefing.title && briefing.theme) briefing.title = briefing.theme;
   briefing.description = mergeDescription(briefing.description, lines.join('\n'));
 
   return normalizeBriefing(briefing);
@@ -402,19 +497,18 @@ function briefingSlides(briefing) {
 
 function localChatReply(messages, briefing) {
   const missing = [];
-  if (!briefing.title) missing.push('título');
-  if (!briefing.area) missing.push('área/setor');
+  if (!briefing.title && !briefing.theme) missing.push('título ou tema');
   if (!briefing.audience) missing.push('público-alvo');
   if (!briefing.objective) missing.push('objetivo');
   if (!briefing.duration) missing.push('duração');
-  if (briefingSlides(briefing).length < 3) missing.push('ao menos 3 tópicos de slides');
+  if (!briefing.kpiTarget && !briefing.behaviorChange) missing.push('KPI impactado ou comportamento esperado');
 
   if (missing.length) {
-    return `Entendi. Para deixar o treinamento pronto para gerar, ainda preciso de: ${missing.join(', ')}.\n\nPode responder em texto livre ou neste formato:\nTítulo: ...\nTema: ...\nÁrea: ...\nPúblico: ...\nObjetivo: ...\nDuração: ...\nSlides:\n- ...\n- ...`;
+    return `Entendi. Para deixar o treinamento pronto para gerar, ainda preciso de: ${missing.join(', ')}.\n\nPode responder em texto livre ou neste formato:\nTítulo: ...\nTema: ...\nÁrea: ...\nPúblico: ...\nObjetivo: ...\nDuração: ...\nKPI: ...\nComportamento esperado: ...\nSlides:\n- ...\n- ...`;
   }
 
-  const slideCount = briefingSlides(briefing).length + 3;
-  return `Briefing suficiente para gerar um primeiro rascunho.\n\nResumo:\n- Título: ${briefing.title}\n- Tema: ${briefing.theme || 'Ainda não informado'}\n- Área: ${briefing.area}\n- Público: ${briefing.audience}\n- Objetivo: ${briefing.objective}\n- Duração: ${briefing.duration}\n- Estrutura estimada: ${slideCount} slides\n\nSe quiser, refine exemplos, tom de voz ou pontos obrigatórios. Caso contrário, clique em "Gerar treinamento".`;
+  const slideCount = fallbackPlan(briefing).slides.length;
+  return `Briefing suficiente para gerar um primeiro rascunho.\n\nResumo:\n- Título: ${briefing.title || briefing.theme}\n- Tema: ${briefing.theme || 'Ainda não informado'}\n- Área: ${briefing.area || briefing.operationType || 'Ainda não informado'}\n- Público: ${briefing.audience}\n- Objetivo: ${briefing.objective}\n- Duração: ${briefing.duration}\n- KPI/impacto: ${briefing.kpiTarget || briefing.behaviorChange}\n- Estrutura estimada: ${slideCount} slides\n\nSe quiser, refine exemplos, tom de voz ou pontos obrigatórios. Caso contrário, clique em "Gerar treinamento".`;
 }
 
 async function chatWithAssistant(input) {
@@ -436,8 +530,8 @@ async function chatWithAssistant(input) {
   const system = `Voce e um consultor de design instrucional da 3F Contact Center.
 Ajude o usuario a refinar o briefing de um treinamento corporativo.
 Responda apenas JSON valido com este schema:
-{"reply":"mensagem curta em pt-BR","briefing":{"title":"string","theme":"string","area":"string","audience":"string","objective":"string","duration":"string","level":"string","tone":"string","slideTarget":"string","practice":"string","evaluation":"string","description":"topicos dos slides em linhas"}}
-Nao gere HTML. Nao invente dados especificos quando faltar contexto; faca perguntas objetivas.`;
+{"reply":"mensagem curta em pt-BR","briefing":{"title":"string","theme":"string","area":"string","audience":"string","objective":"string","duration":"string","level":"string","tone":"string","slideTarget":"string","practice":"string","evaluation":"string","operationType":"string","kpiTarget":"string","operationalPain":"string","behaviorChange":"string","learningEvidence":"string","description":"topicos dos slides em linhas"}}
+Nao gere HTML. Nao invente dados especificos quando faltar contexto; faca perguntas objetivas. Para temas de contact center, classifique tipo de operacao, KPI impactado, dor operacional e comportamento esperado quando o usuario fornecer sinais suficientes.`;
 
   try {
     const response = await fetch(apiUrl, {
@@ -456,7 +550,7 @@ Nao gere HTML. Nao invente dados especificos quando faltar contexto; faca pergun
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
     const parsed = JSON.parse(content.replace(/^```json\s*|\s*```$/g, ''));
-    const mergedBriefing = normalizeBriefing({ ...briefing, ...(parsed.briefing || {}) });
+    const mergedBriefing = normalizeBriefing({ ...briefing, ...inferOperationalBriefing(messages), ...(parsed.briefing || {}) });
     return {
       mode: 'llm',
       briefing: mergedBriefing,
@@ -501,6 +595,11 @@ function normalizePlan(plan) {
     area,
     subtitle: String(plan.subtitle || '').trim(),
     objective: String(plan.objective || '').trim(),
+    operationType: String(plan.operationType || '').trim(),
+    kpiTarget: String(plan.kpiTarget || '').trim(),
+    operationalPain: String(plan.operationalPain || '').trim(),
+    behaviorChange: String(plan.behaviorChange || '').trim(),
+    learningEvidence: String(plan.learningEvidence || '').trim(),
     slides: normalized.slice(0, 24)
   };
 }
