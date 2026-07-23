@@ -428,6 +428,16 @@ body.light-mode{background:#F4F7FB;color:#102033;}
 body.light-mode:before{background:radial-gradient(circle at top right,rgba(94,136,193,.18),transparent 35%),radial-gradient(circle at bottom left,rgba(240,197,90,.14),transparent 25%),linear-gradient(135deg,#F8FAFE,#EAF0F8,#DDE8F5);}
 body.light-mode:after{background-image:linear-gradient(rgba(0,52,103,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(0,52,103,.055) 1px,transparent 1px);opacity:.55;}
 body.light-mode .sidebar,body.light-mode .topbar,body.light-mode .card,body.light-mode .progress-card,body.light-mode .menu-item,body.light-mode .action-btn,body.light-mode .simple-table,body.light-mode .big-check-item,body.light-mode .flow-step{background:rgba(255,255,255,.78);border-color:rgba(0,52,103,.16);box-shadow:0 18px 55px rgba(0,52,103,.08);}
+body.light-mode .kpi-card,body.light-mode .message-box,body.light-mode .mission-values-box,body.light-mode .col-block,body.light-mode .tool-card,body.light-mode .comp-card,body.light-mode .level-card,body.light-mode .orbit-card,body.light-mode .timeline-item,body.light-mode .hub-node,body.light-mode .annot-item,body.light-mode .faq-item,body.light-mode .gallery-item,body.light-mode .final-msg-box{background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(239,245,252,.92));border-color:rgba(0,52,103,.16);box-shadow:0 18px 45px rgba(0,52,103,.08);}
+body.light-mode .kpi-card{background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(229,238,249,.94));border-color:rgba(0,52,103,.14);}
+body.light-mode .kpi-card:hover,body.light-mode .tool-card:hover,body.light-mode .comp-card:hover,body.light-mode .level-card:hover{background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(220,233,248,.96));border-color:rgba(184,138,34,.28);}
+body.light-mode .col-block.good{background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(232,248,239,.92));border-color:rgba(38,148,88,.22);}
+body.light-mode .col-block.bad{background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(253,236,236,.92));border-color:rgba(196,78,78,.22);}
+body.light-mode .col-block.good .col-block-title{color:#1F7A4B!important;}
+body.light-mode .col-block.bad .col-block-title{color:#B44040!important;}
+body.light-mode .kpi-section-title{background:rgba(255,255,255,.68);border-color:rgba(184,138,34,.18);color:#B88A22;}
+body.light-mode .kpi-card .kpi-abbr{color:#003467!important;}
+body.light-mode .kpi-card .kpi-name{color:#37506F!important;}
 body.light-mode .training-subtitle,body.light-mode .top-progress span,body.light-mode .lead,body.light-mode .menu-item span,body.light-mode .progress-info,body.light-mode .card p,body.light-mode .simple-table td,body.light-mode .capa-subtitle{color:#37506F;}
 body.light-mode .menu-title{color:#45617F;}
 body.light-mode .slide,body.light-mode .menu-item strong,body.light-mode .card h3,body.light-mode h2{color:#102033;}
@@ -436,8 +446,8 @@ body.light-mode .badge{background:rgba(0,52,103,.07);border-color:rgba(0,52,103,
 body.light-mode .slide-footer{background:linear-gradient(to top,rgba(244,247,251,.96) 60%,transparent);}
 body.light-mode .sidebar-collapse-btn{background:rgba(0,52,103,.06);border-color:rgba(0,52,103,.14);}
 body.light-mode .gradient-title{background:linear-gradient(90deg,#003467,#1F6EAA 58%,#B88A22);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
-body.light-mode .slide p,body.light-mode .slide li,body.light-mode .slide span:not(.gradient-title),body.light-mode .slide strong,body.light-mode .slide h3,body.light-mode .value,body.light-mode .values-title,body.light-mode .tool-card p,body.light-mode .comp-card p,body.light-mode .timeline-item p{color:#244567!important;}
-body.light-mode .slide h1,body.light-mode .slide h2,body.light-mode .capa-title{color:#102033!important;}
+body.light-mode .slide p,body.light-mode .slide li,body.light-mode .slide span:not(.gradient-title),body.light-mode .slide strong,body.light-mode .slide h3,body.light-mode .value,body.light-mode .values-title,body.light-mode .message-box p,body.light-mode .mission-values-box p,body.light-mode .col-block li,body.light-mode .tool-card p,body.light-mode .comp-card p,body.light-mode .level-card p,body.light-mode .orbit-card p,body.light-mode .timeline-item p{color:#244567!important;}
+body.light-mode .slide h1,body.light-mode .slide h2,body.light-mode .capa-title,body.light-mode .message-box h3,body.light-mode .table-title,body.light-mode .col-block-title,body.light-mode .tool-card .tool-name,body.light-mode .comp-card h3,body.light-mode .level-card h3,body.light-mode .orbit-card h4,body.light-mode .timeline-item h3{color:#102033!important;}
 body.light-mode .gradient-title{background:linear-gradient(90deg,#003467,#1F6EAA 58%,#B88A22)!important;-webkit-background-clip:text!important;-webkit-text-fill-color:transparent!important;}
 body.light-mode .slide-counter,body.light-mode .training-title{color:#8A640C;}
 body.light-mode .action-btn,body.light-mode .menu-toggle,body.light-mode .sidebar-collapse-btn,body.light-mode .nav-btn,body.light-mode .modal-close{background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(235,242,250,.92));border-color:rgba(0,52,103,.22);color:#0E2F53;box-shadow:0 8px 22px rgba(0,52,103,.08);}
