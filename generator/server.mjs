@@ -409,7 +409,8 @@ body.light-mode .action-btn i,body.light-mode .menu-toggle i,body.light-mode .si
 body.light-mode .action-btn:hover,body.light-mode .menu-toggle:hover,body.light-mode .sidebar-collapse-btn:hover,body.light-mode .nav-btn:hover,body.light-mode .modal-close:hover{background:linear-gradient(180deg,rgba(231,240,252,.98),rgba(213,229,247,.95));border-color:rgba(0,52,103,.32);}
 body.light-mode .theme-toggle{border-color:rgba(184,138,34,.35);}
 body.light-mode .theme-toggle i{color:#B88A22;}
-.theme-toggle{width:38px;min-width:38px;padding:0;aspect-ratio:1;}
+.theme-toggle{width:38px;min-width:38px;padding:0;aspect-ratio:1;border-radius:12px;}
+.theme-toggle i{color:var(--accent);}
 </style>
 </head>
 <body>
