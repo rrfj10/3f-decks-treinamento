@@ -34,6 +34,18 @@ Chave padrão local do gerador:
 3f-treinamentos-local
 ```
 
+O Docker Compose lê o arquivo `.env` da raiz do projeto. Para configurar localmente:
+
+```bash
+cp .env.example .env
+```
+
+Depois ajuste:
+
+```text
+GENERATOR_API_KEY=<sua-chave-local>
+```
+
 Em produção/Portainer, troque por uma chave forte:
 
 ```text

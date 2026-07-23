@@ -35,7 +35,9 @@ http://192.168.10.35:8091
 
 Ao abrir o gerador, informe a chave configurada em `GENERATOR_API_KEY`.
 
-Para trocar a chave no Portainer, defina no stack:
+Para Docker Desktop local, use o arquivo `.env` na raiz do projeto. Ele não vai para o Git.
+
+Para trocar a chave no Portainer, defina no stack ou nas variáveis de ambiente:
 
 ```text
 GENERATOR_API_KEY=<chave-forte-do-gerador>
