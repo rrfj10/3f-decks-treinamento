@@ -442,7 +442,8 @@ function escapeHtml(value) {
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function catalogUrl(pathname = '') {
@@ -627,18 +628,20 @@ function renderRoute(data) {
   routeDuration.textContent = `Duração estimada: ${data.duration || '--'}`;
   const mainSteps = slides.slice(0, 4);
   const remaining = Math.max(0, slides.length - mainSteps.length);
-  slidesPreview.innerHTML = mainSteps.length
-    ? mainSteps.map((slide, index) => `<div class="slide-row"><div class="slide-num">${index + 1}</div><strong>${escapeHtml(slide.title)}</strong></div>`).join('')
-    : '<div class="slide-row"><div class="slide-num">--</div><strong>Aguardando estrutura principal</strong></div>';
-  if (remaining) {
-    slidesPreview.innerHTML += `<div class="route-note">+ ${remaining} etapas organizadas no treinamento completo</div>`;
-  }
   const flags = [
     ['Prática', data.practice || (descriptionText.toLowerCase().includes('atividade') ? 'Sim' : 'Não')],
     ['Avaliação', data.evaluation || (descriptionText.toLowerCase().includes('avalia') ? 'Sim' : 'Não')],
     ['Impacto', data.kpiTarget || data.behaviorChange ? 'Definido' : 'Pendente']
   ];
-  slidesPreview.innerHTML += `<div class="flags">${flags.map(([label, value]) => `<div class="flag"><span>${label}</span><b>${escapeHtml(value)}</b></div>`).join('')}</div>`;
+  // Uma atribuicao so: cada `innerHTML +=` reserializava e reparseava todo o
+  // painel, e o custo crescia a cada bloco anexado.
+  slidesPreview.innerHTML = [
+    mainSteps.length
+      ? mainSteps.map((slide, index) => `<div class="slide-row"><div class="slide-num">${index + 1}</div><strong>${escapeHtml(slide.title)}</strong></div>`).join('')
+      : '<div class="slide-row"><div class="slide-num">--</div><strong>Aguardando estrutura principal</strong></div>',
+    remaining ? `<div class="route-note">+ ${remaining} etapas organizadas no treinamento completo</div>` : '',
+    `<div class="flags">${flags.map(([label, value]) => `<div class="flag"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join('')}</div>`
+  ].join('');
 }
 
 function renderStatus(data) {

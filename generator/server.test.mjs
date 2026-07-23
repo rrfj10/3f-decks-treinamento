@@ -8,6 +8,8 @@ const {
   RequestError,
   addRevisionSlides,
   assertAllowedLlmUrl,
+  coverTitleHtml,
+  dedupeLines,
   esc,
   extractBriefingFromMessages,
   fallbackPlan,
@@ -16,9 +18,12 @@ const {
   renderDeck,
   requestedSlideCount,
   resolveDeckFile,
+  reusableSlotKey,
   serializeEnv,
   slugify,
+  stripListMarker,
   text,
+  truncated,
   withSlideLimit
 } = await import('./server.mjs');
 
@@ -112,6 +117,15 @@ test('slugify normaliza acentos e limita tamanho', () => {
   assert.equal(slugify('a'.repeat(200)).length, 72);
 });
 
+test('slugify nao deixa hifen sobrando na ponta depois do corte', () => {
+  // 72 caracteres exatos terminando no separador: aparar antes do slice deixava
+  // o hifen final e o arquivo virava "...-_v1.html".
+  const slug = slugify(`${'a'.repeat(71)} palavra cortada`);
+  assert.equal(slug.length <= 72, true);
+  assert.equal(slug.endsWith('-'), false);
+  assert.equal(slugify('  espacos nas pontas  ').startsWith('-'), false);
+});
+
 test('requestedSlideCount extrai e limita o alvo', () => {
   assert.equal(requestedSlideCount('reduza para 8 slides'), 8);
   assert.equal(requestedSlideCount('quero 99 slides'), 24);
@@ -141,6 +155,64 @@ test('withSlideLimit nao duplica o slide unico', () => {
   plan.slides = [plan.slides[0]];
   const limited = withSlideLimit(plan, 3);
   assert.equal(new Set(limited.slides.map((slide) => slide.title)).size, limited.slides.length);
+});
+
+test('normalizePlan mantem o encerramento ao bater no limite de slides', () => {
+  const slides = [
+    { type: 'cover', title: 'Capa' },
+    ...Array.from({ length: 30 }, (_, index) => ({ type: 'cards', title: `S${index}` }))
+  ];
+  const plan = normalizePlan({ title: 'T', slides });
+  assert.equal(plan.slides.length, 24);
+  assert.equal(plan.slides[0].type, 'cover');
+  assert.equal(plan.slides.at(-1).type, 'closing');
+});
+
+test('normalizePlan nao adiciona encerramento duplicado quando ja existe', () => {
+  const slides = [
+    { type: 'cover', title: 'Capa' },
+    ...Array.from({ length: 30 }, (_, index) => ({ type: 'cards', title: `S${index}` })),
+    { type: 'closing', title: 'Fim' }
+  ];
+  const plan = normalizePlan({ title: 'T', slides });
+  assert.equal(plan.slides.length, 24);
+  assert.equal(plan.slides.filter((slide) => slide.type === 'closing').length, 1);
+});
+
+test('coverTitleHtml fecha o span com varios hifens no titulo', () => {
+  assert.equal(coverTitleHtml('A - B - C'), 'A<br><span class="gradient-title">B - C</span>');
+  assert.equal(coverTitleHtml('Sem hifen'), 'Sem hifen');
+  const html = coverTitleHtml('<img> - x');
+  assert.equal(html.includes('<img>'), false);
+  assert.equal((html.match(/<span/g) || []).length, (html.match(/<\/span>/g) || []).length);
+});
+
+test('truncated corta o texto cru sem quebrar entidade HTML', () => {
+  const label = truncated('aaaaaaaaaaaaaaaaaaaa&&&b', 22);
+  assert.equal(label.includes('&a<'), false);
+  assert.equal(label.includes('&amp;'), true);
+  assert.equal(truncated('curto', 22), 'curto');
+});
+
+test('stripListMarker remove marcador sem comer numero decimal', () => {
+  assert.equal(stripListMarker('3.5 minutos de TMA'), '3.5 minutos de TMA');
+  assert.equal(stripListMarker('- Contexto'), 'Contexto');
+  assert.equal(stripListMarker('1. Contexto'), 'Contexto');
+  assert.equal(stripListMarker('2) Contexto'), 'Contexto');
+  assert.equal(dedupeLines('3.5 minutos de TMA'), '3.5 minutos de TMA');
+});
+
+test('reusableSlotKey so devolve a chave para o host que ela atende', () => {
+  const envValues = {
+    LLM_SLOT_1_API_KEY: 'sk-openai',
+    LLM_SLOT_1_API_URL: 'https://api.openai.com/v1/chat/completions'
+  };
+  assert.equal(reusableSlotKey(envValues, 1, 'https://api.openai.com/v1/chat/completions'), 'sk-openai');
+  assert.throws(
+    () => reusableSlotKey(envValues, 1, 'https://openrouter.ai/api/v1/chat/completions'),
+    RequestError
+  );
+  assert.equal(reusableSlotKey({}, 1, 'https://api.openai.com/v1'), '');
 });
 
 test('extractBriefingFromMessages le rotulos e ignora mensagens invalidas', () => {

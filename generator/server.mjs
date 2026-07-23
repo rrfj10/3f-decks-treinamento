@@ -45,6 +45,7 @@ const llmAllowedHosts = new Set(
     .split(',').map((host) => host.trim().toLowerCase()).filter(Boolean)
 );
 const llmTimeoutMs = Number(process.env.LLM_TIMEOUT_MS || envFileValues.LLM_TIMEOUT_MS || 60_000);
+const trustProxy = String(process.env.TRUST_PROXY ?? envFileValues.TRUST_PROXY ?? 'false').toLowerCase() === 'true';
 const maxBodyBytes = Number(process.env.MAX_BODY_BYTES || envFileValues.MAX_BODY_BYTES || 1_200_000);
 
 const mime = {
@@ -66,9 +67,41 @@ const mime = {
   '.txt': 'text/plain; charset=utf-8'
 };
 
+/**
+ * A interface do gerador nao usa handler inline nem script de terceiro: so o
+ * app.js local, o <style> embutido e as fontes/icones do Google e do cdnjs. Por
+ * isso da para manter script-src em 'self', sem 'unsafe-inline'.
+ * img-src precisa incluir a origem do catalogo, de onde a UI carrega as logos.
+ */
+function buildContentSecurityPolicy() {
+  const catalogOrigin = (() => {
+    try {
+      return new URL(catalogBaseUrl).origin;
+    } catch {
+      return '';
+    }
+  })();
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
+    "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
+    `img-src 'self' data:${catalogOrigin ? ` ${catalogOrigin}` : ''}`,
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'"
+  ].join('; ');
+}
+
 const securityHeaders = {
   'x-content-type-options': 'nosniff',
-  'referrer-policy': 'same-origin'
+  'referrer-policy': 'same-origin',
+  'content-security-policy': buildContentSecurityPolicy(),
+  // Redundante com frame-ancestors, mantido para navegador antigo que so entende
+  // o header legado. O gerador nunca precisa ser embutido em iframe.
+  'x-frame-options': 'DENY'
 };
 
 /** Erro cuja mensagem pode ser devolvida ao cliente. Os demais viram 500 generico. */
@@ -108,7 +141,9 @@ function slugify(value) {
   return String(value || 'treinamento')
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '').slice(0, 72) || 'treinamento';
+    // O corte vem antes da limpeza das pontas: aparando primeiro, um titulo longo
+    // ainda podia terminar em hifen depois do slice e gerar "nome-_v1.html".
+    .slice(0, 72).replace(/^-+|-+$/g, '') || 'treinamento';
 }
 
 /**
@@ -151,6 +186,27 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+/**
+ * Remove marcador de lista ("- ", "* ", "1. ", "2) ") do inicio da linha.
+ * Exige o espaco depois do marcador para nao comer numero do proprio conteudo:
+ * "3.5 minutos de TMA" virava "5 minutos de TMA" com o padrao anterior.
+ */
+function stripListMarker(line) {
+  return String(line ?? '').replace(/^\s*(?:[-*•–]|\d{1,2}[.)])\s+/, '').trim();
+}
+
+function looksLikeListLine(line) {
+  return /^\s*(?:[-*•–]|\d{1,2}[.)])\s+/.test(String(line ?? ''));
+}
+
+function hostOf(url) {
+  try {
+    return new URL(String(url || '')).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
 function comparableText(value) {
   return String(value || '')
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -162,7 +218,7 @@ function comparableText(value) {
 function dedupeLines(value) {
   const seen = new Set();
   return String(value || '').split(/\n+/)
-    .map((line) => line.replace(/^[-*\d. )]+/, '').trim())
+    .map(stripListMarker)
     .filter((line) => {
       const key = comparableText(line);
       if (!key || seen.has(key) || briefingLabelPattern.test(line)) return false;
@@ -177,7 +233,7 @@ function mergeDescription(current, next) {
   const lines = [];
   for (const source of [current, next]) {
     for (const line of String(source || '').split(/\n+/)) {
-      const clean = line.replace(/^[-*\d. )]+/, '').trim();
+      const clean = stripListMarker(line);
       const key = comparableText(clean);
       if (!key || seen.has(key) || briefingLabelPattern.test(clean)) continue;
       seen.add(key);
@@ -262,7 +318,17 @@ const authWindowMs = 60_000;
 const authMaxAttempts = 10;
 const authAttempts = new Map();
 
+/**
+ * Atras de nginx/Traefik todo mundo chega com o IP do proxy, entao o balde de
+ * tentativas vira global: 10 chutes errados de um atacante trancavam a operacao
+ * inteira. Com TRUST_PROXY=true o IP sai do primeiro salto do x-forwarded-for.
+ * Fica desligado por padrao porque esse header e forjavel em exposicao direta.
+ */
 function clientIp(req) {
+  if (trustProxy) {
+    const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    if (forwarded) return forwarded;
+  }
   return req.socket?.remoteAddress || 'desconhecido';
 }
 
@@ -325,7 +391,9 @@ async function readBody(req) {
   for await (const chunk of req) {
     size += chunk.length;
     if (size > maxBodyBytes) {
-      req.destroy();
+      // Sem req.destroy() aqui: matar o socket antes de responder fazia o cliente
+      // receber ECONNRESET e nunca ver o 413. Sair do laco ja pausa a leitura, e o
+      // Node encerra a conexao sozinho ao terminar a resposta com o corpo pendente.
       throw new RequestError('Payload muito grande.', 413);
     }
     chunks.push(chunk);
@@ -470,16 +538,45 @@ function assertConsistentLlmProvider({ label, model, apiUrl }) {
   }
 }
 
+/**
+ * Chave ja gravada no slot, mas SO se o host novo for o mesmo do host que a
+ * chave atende. A allowlist garante que o destino e um provedor conhecido, nao
+ * que ele seja o dono da chave: sem esta amarra, quem tivesse a GENERATOR_API_KEY
+ * mandava apiUrl de outro provedor da lista e sem apiKey, e o servidor entregava
+ * a chave guardada como Bearer para esse terceiro.
+ */
+function reusableSlotKey(envValues, slot, apiUrl) {
+  const targetHost = hostOf(apiUrl);
+  const candidates = [
+    [envValues[`LLM_SLOT_${slot}_API_KEY`], envValues[`LLM_SLOT_${slot}_API_URL`] || envValues.LLM_API_URL],
+    [envValues.LLM_API_KEY, envValues.LLM_API_URL],
+    [envValues.OPENAI_API_KEY, 'https://api.openai.com/v1/chat/completions']
+  ];
+  let blockedHost = '';
+  for (const [key, url] of candidates) {
+    if (!key) continue;
+    const storedHost = hostOf(url);
+    if (!storedHost || storedHost === targetHost) return key;
+    blockedHost ||= storedHost;
+  }
+  if (blockedHost) {
+    throw new RequestError(
+      `A chave salva pertence a ${blockedHost}. Informe a chave de ${targetHost || 'novo provedor'} antes de trocar a URL.`,
+      400
+    );
+  }
+  return '';
+}
+
 async function saveLlmConfig(input) {
   const slotNumber = Number(input.slot);
   const slot = Number.isFinite(slotNumber) ? Math.min(5, Math.max(1, Math.trunc(slotNumber))) : 1;
   const label = text(input.label) || `API ${slot}`;
   const originalContent = await readEnvFile();
   const envValues = parseEnv(originalContent);
-  const existingKey = envValues[`LLM_SLOT_${slot}_API_KEY`] || '';
-  const apiKey = text(input.apiKey) || existingKey;
   const model = text(input.model) || 'gpt-4.1-mini';
   const apiUrl = assertAllowedLlmUrl(text(input.apiUrl) || 'https://api.openai.com/v1/chat/completions');
+  const apiKey = text(input.apiKey) || reusableSlotKey(envValues, slot, apiUrl);
   if (!apiKey) throw new RequestError('Informe a chave da LLM.');
   assertConsistentLlmProvider({ label, model, apiUrl });
 
@@ -522,11 +619,9 @@ async function listLlmModels(input = {}) {
   const slotNumber = Number(input.slot);
   const slot = Number.isFinite(slotNumber) ? Math.min(5, Math.max(1, Math.trunc(slotNumber))) : Number(envValues.LLM_ACTIVE_SLOT || 1);
   const apiUrl = text(input.apiUrl) || envValues[`LLM_SLOT_${slot}_API_URL`] || envValues.LLM_API_URL || 'https://api.openai.com/v1/chat/completions';
-  const apiKey = text(input.apiKey)
-    || envValues[`LLM_SLOT_${slot}_API_KEY`]
-    || envValues.LLM_API_KEY
-    || envValues.OPENAI_API_KEY
-    || '';
+  // Mesma amarra do saveLlmConfig: a chave guardada so segue para o host que ela
+  // atende, nunca para outro provedor da allowlist escolhido pelo chamador.
+  const apiKey = text(input.apiKey) || reusableSlotKey(envValues, slot, apiUrl);
   if (!apiKey) throw new RequestError('Informe a chave da API para carregar os modelos.');
   const modelsUrl = llmModelsUrl(apiUrl);
   const response = await fetch(modelsUrl, {
@@ -574,7 +669,7 @@ function fallbackPlan(rawInput) {
   const learningEvidence = text(input.learningEvidence) || text(input.evaluation) || 'Checagem final de entendimento';
   const raw = text(input.description);
   const topics = raw.split(/\n+/)
-    .map((line) => line.replace(/^[-*\d. )]+/, '').trim())
+    .map(stripListMarker)
     .filter((line) => line && !briefingLabelPattern.test(line))
     .slice(0, 8);
   const core = topics.length ? topics : [
@@ -821,10 +916,10 @@ async function llmRevisePlan(input) {
 function extractBriefingFromMessages(messages, currentBriefing = {}) {
   const lastUser = [...messages].reverse().find((message) => message.role === 'user')?.content || '';
   const slideBlock = lastUser.match(/(?:slides?|topicos|tópicos)\s*:\s*([\s\S]+)/i)?.[1] || '';
-  const bulletLike = lastUser.split(/\n+/).filter((line) => /^\s*[-*\d. )]+/.test(line)).length >= 2;
+  const bulletLike = lastUser.split(/\n+/).filter(looksLikeListLine).length >= 2;
   const linesSource = slideBlock || (bulletLike ? lastUser : '');
   const lines = linesSource.split(/\n+/)
-    .map((line) => line.replace(/^[-*\d. )]+/, '').trim())
+    .map(stripListMarker)
     .filter((line) => line && !briefingLabelPattern.test(line));
   const briefing = normalizeBriefing({
     title: currentBriefing.title || '',
@@ -990,6 +1085,8 @@ function emptySlide(type, title, subtitle) {
   return { type, title, subtitle, lead: '', items: [], rows: [] };
 }
 
+const maxSlides = 24;
+
 function normalizePlan(plan) {
   const source = isPlainObject(plan) ? plan : {};
   const title = text(source.title) || text(source.titulo) || 'Novo Treinamento';
@@ -998,9 +1095,13 @@ function normalizePlan(plan) {
   if (!normalized.length || normalized[0].type !== 'cover') {
     normalized.unshift(emptySlide('cover', title, text(source.objective) || text(source.subtitle)));
   }
-  if (normalized.at(-1)?.type !== 'closing') {
-    normalized.push(emptySlide('closing', 'Encerramento', 'Obrigado pela participação.'));
-  }
+  // O encerramento sai da fila antes do corte e volta no fim, sempre. Cortar com
+  // ele ainda no array descartava o proprio slide de encerramento em planos que
+  // batiam no limite, e o deck terminava no meio do conteudo.
+  const closing = normalized.at(-1)?.type === 'closing'
+    ? normalized.pop()
+    : emptySlide('closing', 'Encerramento', 'Obrigado pela participação.');
+  const slides = [...normalized.slice(0, maxSlides - 1), closing];
   return {
     title,
     area,
@@ -1011,7 +1112,7 @@ function normalizePlan(plan) {
     operationalPain: text(source.operationalPain),
     behaviorChange: text(source.behaviorChange),
     learningEvidence: text(source.learningEvidence),
-    slides: normalized.slice(0, 24)
+    slides
   };
 }
 
@@ -1026,12 +1127,31 @@ function menuIcon(type) {
   }[type] || 'fa-circle';
 }
 
+/** Corta o texto cru e escapa depois: escapar antes cortava entidades no meio
+ *  ("&amp;" virava "&am") e o menu renderizava lixo. */
+function truncated(value, size) {
+  const raw = String(value ?? '');
+  return esc(raw.length > size ? `${raw.slice(0, size - 1).trimEnd()}…` : raw);
+}
+
+/**
+ * Primeira parte do titulo em branco, o resto em gradiente. O replace global
+ * anterior abria um <span> por ocorrencia de " - " e fechava um so, deixando
+ * markup desbalanceado em titulos com dois ou mais hifens.
+ */
+function coverTitleHtml(title) {
+  const parts = String(title ?? '').split(/\s+-\s+/);
+  const head = esc(parts.shift() ?? '');
+  if (!parts.length) return head;
+  return `${head}<br><span class="gradient-title">${esc(parts.join(' - '))}</span>`;
+}
+
 function renderSlide(slide, index) {
   if (slide.type === 'cover') {
     return `<section class="slide${index === 0 ? ' active' : ''}">
 <div class="capa-layout">
 <div class="capa-eyebrow">Universidade Corporativa &bull; ${esc(slide.subtitle || 'Treinamento')}</div>
-<h1 class="capa-title">${esc(slide.title).replace(/\s+-\s+/g, '<br><span class="gradient-title">')}${slide.title.includes(' - ') ? '</span>' : ''}</h1>
+<h1 class="capa-title">${coverTitleHtml(slide.title)}</h1>
 <p class="capa-subtitle">${esc(slide.subtitle)}</p>
 <div class="capa-divider"></div>
 </div>
@@ -1141,7 +1261,7 @@ body.light-mode .theme-toggle i{color:#B88A22;}
 <div class="training-title">${esc(plan.title)}</div>
 <div class="training-subtitle">${esc(plan.area)}<br>• Universidade Corporativa</div>
 <div class="menu-title">Módulos</div>
-<div class="menu">${plan.slides.map((slide, i) => `<div class="menu-item${i === 0 ? ' active' : ''}" onclick="goSlide(${i})"><i class="fas ${menuIcon(slide.type)}"></i><div><strong>${esc(slide.title).slice(0, 22)}</strong><span>Slide ${i + 1}</span></div></div>`).join('')}</div>
+<div class="menu">${plan.slides.map((slide, i) => `<div class="menu-item${i === 0 ? ' active' : ''}" onclick="goSlide(${i})"><i class="fas ${menuIcon(slide.type)}"></i><div><strong>${truncated(slide.title, 22)}</strong><span>Slide ${i + 1}</span></div></div>`).join('')}</div>
 <div class="progress-card"><h4>PROGRESSO DO TREINAMENTO</h4><div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div><div class="progress-info"><span id="progressText">1 / ${total}</span><span style="color:#74FF9F;">Em andamento</span></div></div>
 </div>
 <div class="main">
@@ -1213,19 +1333,31 @@ async function reviseTraining(input) {
   const entry = await assertRevisableDeck(relFile);
   await stat(filePath);
 
+  // A revisao sobrescreve o arquivo inteiro. Sem o plano atual no corpo, a LLM
+  // recebia um plano vazio, inventava um treinamento do zero e o deck original era
+  // perdido - o pedido era "revise isto", nao "gere outro por cima".
+  const currentPlan = isPlainObject(input.plan) ? input.plan : {};
+  if (!Array.isArray(currentPlan.slides) || !currentPlan.slides.length) {
+    throw new RequestError(
+      'Envie o plano atual do treinamento (campo "plan" com "slides") para revisar. Sem ele a revisão sobrescreveria o deck com conteúdo novo.',
+      400
+    );
+  }
+
   const briefing = normalizeBriefing(input.briefing);
-  const result = await llmRevisePlan({
-    instruction,
-    plan: isPlainObject(input.plan) ? input.plan : {},
-    briefing
-  });
-  const plan = result.plan;
+  const result = await llmRevisePlan({ instruction, plan: currentPlan, briefing });
+  // A area fica travada na do catalogo: o arquivo nao e movido de pasta na
+  // revisao, entao aceitar uma area nova deixaria o deck em decks/<area-antiga>/
+  // com o catalogo apontando outra area.
+  const plan = { ...result.plan, area: entry.area || result.plan.area };
   await writeFile(filePath, renderDeck(plan));
   await writeCatalog({
     ...entry,
     title: plan.title,
     area: plan.area,
-    version: 'rev',
+    // Preserva a versao original do deck: gravar 'rev' apagava o v1/v2 e tornava
+    // duas revisoes seguidas indistinguiveis no catalogo.
+    version: entry.version || 'v1',
     file: relFile,
     status: 'Revisado',
     description: plan.objective || plan.subtitle || briefing.objective || '',
@@ -1263,7 +1395,17 @@ async function serveStatic(req, res) {
       ...securityHeaders,
       'content-type': mime[path.extname(filePath).toLowerCase()] || 'application/octet-stream'
     });
-    createReadStream(filePath).pipe(res);
+    const stream = createReadStream(filePath);
+    // Sem este handler, uma falha de leitura depois do stat (arquivo removido,
+    // permissao alterada, EIO) emitia 'error' sem listener e derrubava o processo
+    // inteiro - o try/catch nao alcanca evento assincrono. Os headers ja foram
+    // enviados aqui, entao so resta encerrar a resposta.
+    stream.on('error', (error) => {
+      console.error(`[erro] leitura de ${filePath}`, error);
+      res.destroy();
+    });
+    res.on('close', () => stream.destroy());
+    stream.pipe(res);
   } catch {
     json(res, 404, { error: 'Arquivo nao encontrado.' });
   }
@@ -1332,8 +1474,10 @@ export {
   addRevisionSlides,
   assertAllowedLlmUrl,
   comparableText,
+  coverTitleHtml,
   dedupeLines,
   esc,
+  hostOf,
   extractBriefingFromMessages,
   fallbackPlan,
   fallbackRevisePlan,
@@ -1345,9 +1489,12 @@ export {
   renderDeck,
   requestedSlideCount,
   resolveDeckFile,
+  reusableSlotKey,
   serializeEnv,
   server,
   slugify,
+  stripListMarker,
   text,
+  truncated,
   withSlideLimit
 };
