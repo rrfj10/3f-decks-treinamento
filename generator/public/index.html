@@ -33,12 +33,15 @@ body.sidebar-collapsed .sidebar{padding:26px 12px;overflow:hidden}
 body.sidebar-collapsed .sidebar-collapse-btn i{transform:rotate(180deg)}
 body.sidebar-collapsed .brand-logo{display:none}
 body.sidebar-collapsed .brand-logo-compact{display:block}
+body.sidebar-collapsed .module-list{justify-items:center;align-items:start;width:100%}
 body.sidebar-collapsed .training-title,
 body.sidebar-collapsed .training-subtitle,
 body.sidebar-collapsed .side-label,
 body.sidebar-collapsed .module strong,
 body.sidebar-collapsed .module span{display:none}
-body.sidebar-collapsed .module{justify-content:center;padding:14px 0}
+body.sidebar-collapsed .module{width:46px;height:46px;display:flex;align-items:center;justify-content:center;gap:0;padding:0;border-radius:14px;margin:0 auto}
+body.sidebar-collapsed .module i{width:22px;height:22px;min-width:0;margin:0;display:grid;place-items:center;font-size:16px;line-height:1;text-align:center}
+body.sidebar-collapsed .module i:before{display:grid;width:22px;height:22px;place-items:center;text-align:center}
 .main{min-width:0;height:100vh;display:grid;grid-template-rows:78px 1fr 64px;overflow:hidden}
 .topbar{display:grid;grid-template-columns:1fr auto;align-items:center;gap:20px;padding:0 30px;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(0,0,0,.14);backdrop-filter:blur(14px)}
 .progress-wrap span{display:block;font-size:12px;font-weight:700;color:#AABCDD;text-transform:uppercase;margin-bottom:11px}
@@ -143,6 +146,8 @@ body.light-mode .bubble{background:linear-gradient(135deg,rgba(255,255,255,.9),r
 body.light-mode .msg.user .bubble{background:linear-gradient(135deg,#D8E8FF,#BFD7F5);color:#0D2B4D}
 body.light-mode .composer,body.light-mode .chat-head,body.light-mode .panel-head{background:rgba(255,255,255,.35);border-color:rgba(0,52,103,.11)}
 body.light-mode .footerbar{background:linear-gradient(to top,rgba(244,247,251,.96) 60%,transparent)}
+body.light-mode .footerbar:before,
+body.light-mode .footerbar:after{background:linear-gradient(90deg,transparent,rgba(0,52,103,.34))}
 body.light-mode .access-gate{background:rgba(244,247,251,.86)}
 body.light-mode .access-card{background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(235,242,250,.98));border-color:rgba(0,52,103,.2);box-shadow:0 28px 80px rgba(0,52,103,.18)}
 body.light-mode .access-card p{color:#37506F}

@@ -542,6 +542,11 @@ body.sidebar-collapsed .menu-item span{
 display:none;
 }
 
+body.sidebar-collapsed .menu{
+align-items:center;
+width:100%;
+}
+
 body.sidebar-collapsed .menu-item{
 width:46px;
 height:46px;
@@ -559,17 +564,18 @@ width:22px;
 height:22px;
 min-width:0;
 margin:0;
-display:flex;
-align-items:center;
-justify-content:center;
+display:grid;
+place-items:center;
 font-size:16px;
 line-height:1;
 text-align:center;
 }
 
 body.sidebar-collapsed .menu-item i::before{
-display:block;
-width:1em;
+display:grid;
+width:22px;
+height:22px;
+place-items:center;
 text-align:center;
 }
 
