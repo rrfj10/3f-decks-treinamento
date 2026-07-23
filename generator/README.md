@@ -59,7 +59,9 @@ definida. Tentativas de validação são limitadas a 10 por minuto por IP.
 
 Sem chave, o gerador usa fallback local.
 
-Para chamar uma LLM compatível com Chat Completions:
+A forma normal de configurar é pela tela do gerador, que tem 5 slots e grava no
+`.env`. Para o primeiro setup, ou para recuperar um ambiente, dá para editar o
+arquivo à mão:
 
 ```text
 LLM_API_KEY=<sua-chave>
@@ -72,6 +74,21 @@ Também aceita:
 ```text
 OPENAI_API_KEY=<sua-chave>
 ```
+
+### Quem manda: arquivo ou ambiente
+
+Para essas configs de LLM, **o `.env` tem prioridade sobre a variável de ambiente** —
+ao contrário do resto (`PORT`, `TRAINING_ROOT`, `GENERATOR_API_KEY`, `TRUST_PROXY`,
+`LLM_ALLOWED_HOSTS`, `LLM_TIMEOUT_MS`), onde o ambiente vence.
+
+O motivo: a tela de configuração reescreve o `.env`, então ele é a fonte da verdade
+do que o usuário salvou. Se o ambiente vencesse, um redeploy com `LLM_API_KEY` no
+compose reverteria em silêncio a chave cadastrada pela tela.
+
+Consequência prática: não declare as chaves de LLM no `docker-compose` — elas foram
+removidas de lá justamente por isso — e trate o `.env` como arquivo de estado, com
+backup. A variável de ambiente ainda funciona como último recurso, quando a chave
+não existe no `.env`.
 
 ### Hosts autorizados
 

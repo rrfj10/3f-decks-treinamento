@@ -67,29 +67,34 @@ ports:
 
 O serviço `treinamentos-generator` funciona mesmo sem chave de LLM: nesse caso ele gera um rascunho local a partir dos tópicos informados.
 
-Para usar uma LLM, configure uma destas variáveis no Portainer antes do deploy:
+**A chave da LLM se configura pela tela do gerador, não por variável do stack.**
+A tela tem 5 slots de LLM e grava no `.env` montado no container. Como a aplicação
+reescreve esse arquivo, ele é a fonte da verdade dessas configurações — declarar
+`LLM_API_KEY`, `LLM_MODEL`, `LLM_API_URL` ou `LLM_ACTIVE_SLOT` no stack criaria uma
+segunda fonte que o próximo redeploy reimporia por cima do que foi salvo na tela.
+Por isso essas variáveis não aparecem no `docker-compose.portainer.yml`.
 
-```text
-LLM_API_KEY
-```
+Para o primeiro setup, dá para semear a chave editando o `.env` à mão antes de subir
+o stack — depois disso, use a tela.
 
-ou:
+> **O `.env` é arquivo de estado, não só de configuração.** Inclua no backup e nunca
+> o recrie do zero num redeploy: as chaves de LLM cadastradas pela tela se perdem.
+> Mantenha o volume do `.env` declarado no stack.
 
-```text
-OPENAI_API_KEY
-```
-
-Variáveis opcionais:
+Variáveis que continuam sendo do stack (a tela não mexe nelas):
 
 ```text
 GENERATOR_REQUIRE_AUTH=true
 GENERATOR_API_KEY=<chave-forte-do-gerador>
 CATALOG_BASE_URL=http://192.168.10.35:8088
-LLM_MODEL=gpt-4.1-mini
-LLM_API_URL=https://api.openai.com/v1/chat/completions
+LLM_ALLOWED_HOSTS=
+LLM_TIMEOUT_MS=60000
+TRUST_PROXY=false
 ```
 
-O gerador também possui uma tela de configuração com 5 slots de LLM. No Docker Desktop local, essa tela salva no `.env` montado no container. No Portainer, mantenha o volume do `.env` configurado no stack para permitir essa persistência.
+Ligue `TRUST_PROXY=true` só se o gerador estiver atrás de um proxy reverso. Sem isso,
+atrás de proxy todas as requisições chegam com o mesmo IP e 10 tentativas erradas de
+um atacante bloqueiam o acesso de todo mundo por um minuto.
 
 O gerador salva o HTML em `treinamentos/decks/<area>/` e atualiza `treinamentos/catalog.json`.
 

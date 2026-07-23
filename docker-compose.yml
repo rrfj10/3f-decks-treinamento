@@ -17,20 +17,21 @@ services:
     command: ["node", "generator/server.mjs"]
     ports:
       - "8091:3000"
+    # Só configuração de boot, que o operador define e a aplicação nunca reescreve.
+    # As configs de LLM (slot ativo, chave, modelo, URL) vivem no .env montado
+    # abaixo, porque é lá que a tela de configuração grava: declarar as mesmas
+    # chaves aqui criava uma segunda fonte da verdade que o redeploy reimpunha por
+    # cima do que o usuário tinha salvo pela interface.
     environment:
       TRAINING_ROOT: /app/treinamentos
       PORT: 3000
       CATALOG_BASE_URL: ${CATALOG_BASE_URL:-http://localhost:8088}
       GENERATOR_REQUIRE_AUTH: ${GENERATOR_REQUIRE_AUTH:-true}
       GENERATOR_API_KEY: ${GENERATOR_API_KEY:?defina GENERATOR_API_KEY no .env}
-      LLM_ACTIVE_SLOT: ${LLM_ACTIVE_SLOT:-1}
-      LLM_MODEL: ${LLM_MODEL:-gpt-4.1-mini}
-      LLM_API_URL: ${LLM_API_URL:-https://api.openai.com/v1/chat/completions}
-      LLM_API_KEY: ${LLM_API_KEY:-}
+      # Limites de seguranca da saida para LLM: a interface nao mexe neles.
       LLM_ALLOWED_HOSTS: ${LLM_ALLOWED_HOSTS:-}
       LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-60000}
       TRUST_PROXY: ${TRUST_PROXY:-false}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - ./.env:/app/.env
       - ./generator:/app/generator:ro
