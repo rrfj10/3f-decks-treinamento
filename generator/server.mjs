@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir, stat, readdir } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { timingSafeEqual } from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
@@ -10,7 +11,14 @@ const trainingRoot = path.resolve(process.env.TRAINING_ROOT || path.join(__dirna
 const deckRoot = path.join(trainingRoot, 'decks');
 const catalogPath = path.join(trainingRoot, 'catalog.json');
 const port = Number(process.env.PORT || 3000);
+const catalogBaseUrl = process.env.CATALOG_BASE_URL || '';
+const requireAuth = String(process.env.GENERATOR_REQUIRE_AUTH ?? 'true').toLowerCase() !== 'false';
+const generatorApiKey = (process.env.GENERATOR_API_KEY || '').trim();
 const briefingLabelPattern = /^(titulo|título|nome do treinamento|tema|assunto|area|área|setor|publico|público|audiencia|audiência|objetivo|foco|duracao|duração|tempo|nivel|nível|conhecimento|tom|linguagem|quantidade de slides|qtd slides|slides|topicos|tópicos|atividade|dinamica|dinâmica|pratica|prática|avaliacao|avaliação|prova|quiz)\s*:/i;
+
+if (requireAuth && !generatorApiKey) {
+  throw new Error('GENERATOR_API_KEY precisa estar configurada quando GENERATOR_REQUIRE_AUTH=true.');
+}
 
 const mime = {
   '.html': 'text/html; charset=utf-8',
@@ -33,12 +41,40 @@ function slugify(value) {
     .replace(/^-+|-+$/g, '').slice(0, 72) || 'treinamento';
 }
 
+async function uniqueDeckFile(areaDir, title) {
+  const base = slugify(title);
+  for (let version = 1; version <= 999; version += 1) {
+    const fileSlug = `${base}_v${version}.html`;
+    try {
+      await stat(path.join(areaDir, fileSlug));
+    } catch {
+      return { fileSlug, version: `v${version}` };
+    }
+  }
+  throw new Error('Limite de versões atingido para este treinamento.');
+}
+
 function esc(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
+}
+
+function hasValidGeneratorKey(req) {
+  if (!requireAuth) return true;
+  const received = String(req.headers['x-api-key'] || '').trim();
+  if (!received) return false;
+  const receivedBuffer = Buffer.from(received);
+  const expectedBuffer = Buffer.from(generatorApiKey);
+  return receivedBuffer.length === expectedBuffer.length && timingSafeEqual(receivedBuffer, expectedBuffer);
+}
+
+function requireGeneratorKey(req, res) {
+  if (hasValidGeneratorKey(req)) return true;
+  json(res, 401, { error: 'Chave de acesso invalida ou ausente.' });
+  return false;
 }
 
 async function readBody(req) {
@@ -443,16 +479,16 @@ async function generateTraining(input) {
   const result = await llmPlan(input);
   const plan = result.plan;
   const areaSlug = slugify(plan.area);
-  const fileSlug = `${slugify(plan.title)}_v1.html`;
   const areaDir = path.join(deckRoot, areaSlug);
   await mkdir(areaDir, { recursive: true });
+  const { fileSlug, version } = await uniqueDeckFile(areaDir, plan.title);
   const filePath = path.join(areaDir, fileSlug);
   await writeFile(filePath, renderDeck(plan));
   const relFile = `decks/${areaSlug}/${fileSlug}`;
   await writeCatalog({
     title: plan.title,
     area: plan.area,
-    version: 'v1',
+    version,
     file: relFile,
     status: 'Rascunho gerado',
     description: input.objective || plan.objective || plan.subtitle || ''
@@ -463,8 +499,9 @@ async function generateTraining(input) {
 async function serveStatic(req, res) {
   const url = new URL(req.url, 'http://localhost');
   const pathname = url.pathname === '/' ? '/index.html' : url.pathname;
-  const filePath = path.normalize(path.join(publicDir, pathname));
-  if (!filePath.startsWith(publicDir)) return json(res, 403, { error: 'Acesso negado.' });
+  const filePath = path.resolve(publicDir, `.${pathname}`);
+  const relativePath = path.relative(publicDir, filePath);
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) return json(res, 403, { error: 'Acesso negado.' });
   try {
     const info = await stat(filePath);
     if (!info.isFile()) throw new Error('not file');
@@ -479,8 +516,16 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
     if (req.method === 'GET' && url.pathname === '/api/catalog') return json(res, 200, await readCatalog());
-    if (req.method === 'POST' && url.pathname === '/api/chat') return json(res, 200, await chatWithAssistant(await readBody(req)));
-    if (req.method === 'POST' && url.pathname === '/api/generate') return json(res, 200, await generateTraining(await readBody(req)));
+    if (req.method === 'GET' && url.pathname === '/api/config') return json(res, 200, { catalogBaseUrl, authRequired: requireAuth });
+    if (req.method === 'POST' && url.pathname === '/api/validate-key') return json(res, hasValidGeneratorKey(req) ? 200 : 401, hasValidGeneratorKey(req) ? { ok: true } : { error: 'Chave de acesso invalida.' });
+    if (req.method === 'POST' && url.pathname === '/api/chat') {
+      if (!requireGeneratorKey(req, res)) return;
+      return json(res, 200, await chatWithAssistant(await readBody(req)));
+    }
+    if (req.method === 'POST' && url.pathname === '/api/generate') {
+      if (!requireGeneratorKey(req, res)) return;
+      return json(res, 200, await generateTraining(await readBody(req)));
+    }
     if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { ok: true, trainingRoot });
     return serveStatic(req, res);
   } catch (error) {

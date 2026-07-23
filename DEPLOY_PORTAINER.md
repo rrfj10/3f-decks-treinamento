@@ -33,6 +33,20 @@ Gerador de treinamentos:
 http://192.168.10.35:8091
 ```
 
+Ao abrir o gerador, informe a chave configurada em `GENERATOR_API_KEY`.
+
+Para trocar a chave no Portainer, defina no stack:
+
+```text
+GENERATOR_API_KEY=<chave-forte-do-gerador>
+```
+
+Por padrão local de desenvolvimento, o compose usa:
+
+```text
+3f-treinamentos-local
+```
+
 Se a porta `8088` já estiver em uso, troque o lado esquerdo em `ports`, por exemplo:
 
 ```yaml
@@ -66,6 +80,9 @@ OPENAI_API_KEY
 Variáveis opcionais:
 
 ```text
+GENERATOR_REQUIRE_AUTH=true
+GENERATOR_API_KEY=<chave-forte-do-gerador>
+CATALOG_BASE_URL=http://192.168.10.35:8088
 LLM_MODEL=gpt-4.1-mini
 LLM_API_URL=https://api.openai.com/v1/chat/completions
 ```

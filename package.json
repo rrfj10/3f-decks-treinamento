@@ -5,11 +5,6 @@
   "scripts": {
     "dev:generator": "node generator/server.mjs",
     "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down",
-    "virtual-office:build": "npm --prefix _dl/_tools/virtual-office run build",
-    "virtual-office:dev": "npm --prefix _dl/_tools/virtual-office run dev",
-    "virtual-office:install": "npm --prefix _dl/_tools/virtual-office install",
-    "virtual-office:preview": "npm --prefix _dl/_tools/virtual-office run preview",
-    "virtual-office:update-state": "npm --prefix _dl/_tools/virtual-office run update-state --"
+    "docker:down": "docker compose down"
   }
 }

@@ -28,6 +28,18 @@ Abrir:
 http://localhost:8091
 ```
 
+Chave padrão local do gerador:
+
+```text
+3f-treinamentos-local
+```
+
+Em produção/Portainer, troque por uma chave forte:
+
+```text
+GENERATOR_API_KEY=<chave-forte-do-gerador>
+```
+
 ## LLM
 
 Sem chave, o gerador usa fallback local.
@@ -50,7 +62,7 @@ OPENAI_API_KEY=<sua-chave>
 
 O gerador salva:
 
-- HTML em `treinamentos/decks/<area>/<titulo>_v1.html`
+- HTML em `treinamentos/decks/<area>/<titulo>_vN.html`
 - Registro em `treinamentos/catalog.json`
 
 O catálogo publicado em Nginx lê `catalog.json`, então novos treinamentos aparecem na tela principal.

@@ -1,6 +1,4 @@
-const catalogBase = `${location.protocol}//${location.hostname}:8088`;
-document.getElementById('catalogLink').href = catalogBase;
-document.getElementById('catalogLinkBottom').href = catalogBase;
+let catalogBase = '';
 
 const thread = document.getElementById('thread');
 const composer = document.getElementById('composer');
@@ -22,6 +20,11 @@ const briefingPanel = document.getElementById('briefingPanel');
 const slideCount = document.getElementById('slideCount');
 const routeDuration = document.getElementById('routeDuration');
 const resultBox = document.getElementById('resultBox');
+const accessGate = document.getElementById('accessGate');
+const accessForm = document.getElementById('accessForm');
+const accessKeyInput = document.getElementById('accessKeyInput');
+const accessError = document.getElementById('accessError');
+const accessLogo = document.getElementById('accessLogo');
 
 const fields = {
   title: document.getElementById('title'),
@@ -46,6 +49,71 @@ let messages = [
 ];
 let briefing = {};
 let draftPlan = null;
+let authRequired = false;
+let generatorKey = sessionStorage.getItem('3f-generator-key') || '';
+
+function fallbackCatalogBase() {
+  if (location.port === '8091' || location.port === '3000') return `${location.protocol}//${location.hostname}:8088`;
+  return location.origin;
+}
+
+async function loadRuntimeConfig() {
+  try {
+    const response = await fetch('/api/config', { cache: 'no-store' });
+    const config = response.ok ? await response.json() : {};
+    catalogBase = config.catalogBaseUrl || fallbackCatalogBase();
+    authRequired = Boolean(config.authRequired);
+  } catch {
+    catalogBase = fallbackCatalogBase();
+  }
+  document.getElementById('catalogLink').href = catalogBase;
+  document.getElementById('catalogLinkBottom').href = catalogBase;
+}
+
+function authHeaders() {
+  return authRequired ? { 'X-API-Key': generatorKey } : {};
+}
+
+function resetAccess() {
+  generatorKey = '';
+  sessionStorage.removeItem('3f-generator-key');
+  accessKeyInput.value = '';
+  accessGate.hidden = false;
+  accessKeyInput.focus();
+}
+
+async function validateAccessKey(key) {
+  if (!authRequired) return true;
+  const response = await fetch('/api/validate-key', {
+    method: 'POST',
+    headers: { 'X-API-Key': key }
+  });
+  return response.ok;
+}
+
+async function ensureAccess() {
+  if (!authRequired) {
+    accessGate.hidden = true;
+    return true;
+  }
+  if (generatorKey && await validateAccessKey(generatorKey)) {
+    accessGate.hidden = true;
+    return true;
+  }
+  generatorKey = '';
+  sessionStorage.removeItem('3f-generator-key');
+  accessGate.hidden = false;
+  accessKeyInput.focus();
+  return false;
+}
+
+function todayPtBr() {
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  }).format(new Date());
+}
 
 function setTheme(mode) {
   const light = mode === 'light';
@@ -54,6 +122,7 @@ function setTheme(mode) {
   document.getElementById('brandLogo').src = `${catalogBase}/_assets/logos/${light ? 'Logo_horizontal_Azul.png' : 'Logo_horizontal_branca.png'}`;
   document.getElementById('brandLogoCompact').src = `${catalogBase}/_assets/logos/${light ? 'Logo_vertical_azul.png' : 'Logo_vertical_branca.png'}`;
   document.getElementById('footerLogo').src = `${catalogBase}/_assets/logos/${light ? 'Logo_horizontal_Azul.png' : 'Logo_horizontal_branca.png'}`;
+  accessLogo.src = `${catalogBase}/_assets/logos/${light ? 'Logo_horizontal_Azul.png' : 'Logo_horizontal_branca.png'}`;
   themeBtn.innerHTML = light ? '<i class="fas fa-moon"></i>' : '<i class="fas fa-sun"></i>';
   themeBtn.setAttribute('aria-label', light ? 'Ativar tema escuro' : 'Ativar tema claro');
   themeBtn.setAttribute('title', light ? 'Ativar tema escuro' : 'Ativar tema claro');
@@ -211,10 +280,11 @@ async function sendChat(text) {
   statusBox.textContent = 'Analisando a conversa e atualizando o briefing...';
   const response = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ messages, briefing: fieldBriefing() })
   });
   const payload = await response.json();
+  if (response.status === 401) resetAccess();
   if (!response.ok) throw new Error(payload.error || 'Falha no chat.');
   applyBriefing(payload.briefing || {});
   draftPlan = payload.draftPlan || null;
@@ -238,15 +308,16 @@ async function generateTraining() {
   try {
     const response = await fetch('/api/generate', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeaders() },
       body: JSON.stringify(data)
     });
     const payload = await response.json();
+    if (response.status === 401) resetAccess();
     if (!response.ok) throw new Error(payload.error || 'Falha ao gerar.');
     draftPlan = payload.plan;
     renderPreview();
     const slides = payload.plan?.slides?.length || estimatedSlides(data).length;
-    resultBox.innerHTML = `<strong>Treinamento criado com sucesso</strong><br>${escapeHtml(payload.plan.title)}<br>${slides} slides · criado em 22/07/2026 · status: pronto para revisão<br><br><a href="${catalogBase}${payload.url}" target="_blank">Abrir treinamento</a> · <a href="${catalogBase}" target="_blank">Voltar ao catálogo</a>`;
+    resultBox.innerHTML = `<strong>Treinamento criado com sucesso</strong><br>${escapeHtml(payload.plan.title)}<br>${slides} slides · criado em ${todayPtBr()} · status: pronto para revisão<br><br><a href="${catalogBase}${payload.url}" target="_blank">Abrir treinamento</a> · <a href="${catalogBase}" target="_blank">Voltar ao catálogo</a>`;
     messages.push({ role: 'assistant', content: 'O treinamento foi criado. Você pode pedir alterações antes de finalizar.' });
     renderMessages();
   } catch (error) {
@@ -325,7 +396,33 @@ sidebarCollapseBtn.addEventListener('click', () => {
   document.body.classList.toggle('sidebar-collapsed');
 });
 themeBtn.addEventListener('click', toggleTheme);
+accessForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  accessError.textContent = '';
+  const key = accessKeyInput.value.trim();
+  if (!key) return;
+  const button = accessForm.querySelector('button');
+  button.disabled = true;
+  button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Validando...';
+  try {
+    if (!await validateAccessKey(key)) {
+      accessError.textContent = 'Chave invalida. Verifique e tente novamente.';
+      return;
+    }
+    generatorKey = key;
+    sessionStorage.setItem('3f-generator-key', key);
+    accessGate.hidden = true;
+  } catch (error) {
+    accessError.textContent = `Falha ao validar: ${error.message}`;
+  } finally {
+    button.disabled = false;
+    button.innerHTML = '<i class="fas fa-key"></i> Validar chave';
+  }
+});
 
-setTheme(localStorage.getItem('3f-theme') || 'dark');
-renderMessages();
-renderPreview();
+loadRuntimeConfig().then(() => {
+  setTheme(localStorage.getItem('3f-theme') || 'dark');
+  renderMessages();
+  renderPreview();
+  ensureAccess();
+});
