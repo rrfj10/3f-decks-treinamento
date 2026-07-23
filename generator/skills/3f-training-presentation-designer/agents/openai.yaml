@@ -1,0 +1,8 @@
+interface:
+  display_name: "3F Training Presentation Designer"
+  short_description: "Guia decks 3F com boas praticas de mercado"
+  brand_color: "#f5c84c"
+  default_prompt: "Use $3f-training-presentation-designer para criar, revisar ou ajustar treinamentos 3F no template oficial."
+
+policy:
+  allow_implicit_invocation: true
