@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3F Contact Center • Treinamentos</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&family=Orbitron:wght@500;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+<!-- ══ CONFIGURAÇÃO DE ASSETS ══
+Troque links e caminhos de imagens somente neste bloco.
+No corpo do HTML, use a chave configurada no atributo data-asset.
+-->
+<script>
+window.TRAINING_CONFIG={
+assets:{
+// Logo real da 3F salva localmente
+logo3f:'_assets/logos/Logo_horizontal_branca.png',
+logo3fLight:'_assets/logos/Logo_horizontal_Azul.png',
+logo3fVertical:'_assets/logos/Logo_vertical_branca.png',
+logo3fVerticalLight:'_assets/logos/Logo_vertical_azul.png'
+}
+};
+</script>
+
+<style>
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+}
+
+:root{
+--primary:#003467;
+--secondary:#003D38;
+--accent:#F0C55A;
+--light:#5E88C1;
+--dark:#04101d;
+--card:rgba(8,20,40,0.72);
+--border:rgba(94,136,193,0.22);
+}
+
+body{
+font-family:'Montserrat',sans-serif;
+background:#020B16;
+color:white;
+min-height:100vh;
+overflow-x:hidden;
+}
+
+body::before{
+content:'';
+position:fixed;
+inset:0;
+background:
+radial-gradient(circle at top right, rgba(94,136,193,0.18), transparent 35%),
+radial-gradient(circle at bottom left, rgba(240,197,90,0.08), transparent 25%),
+linear-gradient(135deg,#010B15,#021325,#00152A);
+z-index:-2;
+}
+
+body::after{
+content:'';
+position:fixed;
+inset:0;
+background-image:
+linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+background-size:28px 28px;
+opacity:0.35;
+z-index:-1;
+}
+
+.sidebar{
+position:fixed;
+left:0;
+top:0;
+width:260px;
+height:100vh;
+background:rgba(0,0,0,0.28);
+backdrop-filter:blur(18px);
+border-right:1px solid rgba(255,255,255,0.06);
+padding:24px 18px;
+z-index:100;
+overflow-y:auto;
+transition:width 0.28s ease,padding 0.28s ease;
+}
+
+.sidebar-collapse-btn{
+width:34px;
+height:34px;
+border-radius:10px;
+border:1px solid rgba(255,255,255,0.1);
+background:rgba(255,255,255,0.04);
+color:var(--accent);
+cursor:pointer;
+display:grid;
+place-items:center;
+transition:0.25s;
+}
+
+.sidebar-collapse-btn:hover{
+background:rgba(240,197,90,0.12);
+border-color:rgba(240,197,90,0.3);
+}
+
+.logo{
+margin-bottom:22px;
+}
+
+.logo img{
+width:168px;
+object-fit:contain;
+transition:width 0.28s ease;
+}
+
+.training-title{
+font-family:'Orbitron',sans-serif;
+font-size:22px;
+font-weight:800;
+line-height:1.2;
+color:var(--accent);
+margin-bottom:10px;
+text-transform:uppercase;
+}
+
+.training-subtitle{
+font-size:13px;
+line-height:1.6;
+color:#C4D7F3;
+margin-bottom:30px;
+}
+
+.menu-title{
+font-size:12px;
+letter-spacing:1px;
+text-transform:uppercase;
+color:#7F9BC0;
+margin-bottom:14px;
+}
+
+.menu{
+display:flex;
+flex-direction:column;
+gap:10px;
+}
+
+.menu-item{
+display:flex;
+align-items:center;
+gap:10px;
+padding:11px 13px;
+border-radius:14px;
+background:rgba(255,255,255,0.02);
+border:1px solid transparent;
+color:white;
+text-decoration:none;
+transition:0.35s;
+}
+
+.menu-item:hover,
+.menu-item.active{
+background:rgba(94,136,193,0.12);
+border-color:rgba(94,136,193,0.25);
+transform:translateX(4px);
+}
+
+.menu-item i{
+width:20px;
+text-align:center;
+color:var(--accent);
+}
+
+.menu-item strong{
+display:block;
+font-size:15px;
+font-weight:600;
+}
+
+.menu-item span{
+font-size:12px;
+color:#B4C7E7;
+}
+
+.progress-card{
+margin-top:28px;
+padding:16px;
+border-radius:16px;
+background:rgba(255,255,255,0.03);
+border:1px solid rgba(255,255,255,0.06);
+}
+
+.progress-card h4{
+font-size:13px;
+margin-bottom:12px;
+color:#B4C7E7;
+}
+
+.progress-info{
+display:flex;
+justify-content:space-between;
+font-size:13px;
+}
+
+.main{
+margin-left:260px;
+min-height:100vh;
+position:relative;
+transition:margin-left 0.28s ease;
+}
+
+.topbar{
+position:sticky;
+top:0;
+height:68px;
+display:flex;
+align-items:center;
+justify-content:space-between;
+padding:0 28px;
+background:rgba(0,0,0,0.15);
+backdrop-filter:blur(12px);
+border-bottom:1px solid rgba(255,255,255,0.05);
+z-index:99;
+}
+
+.topbar-title{
+font-size:13px;
+letter-spacing:1px;
+text-transform:uppercase;
+color:#B4C7E7;
+}
+
+.topbar-left{
+display:flex;
+align-items:center;
+gap:12px;
+min-width:0;
+}
+
+.top-actions{
+display:flex;
+align-items:center;
+justify-content:flex-end;
+gap:10px;
+}
+
+.action-btn{
+display:flex;
+align-items:center;
+gap:8px;
+min-height:38px;
+padding:9px 13px;
+border-radius:18px;
+background:rgba(255,255,255,0.04);
+border:1px solid rgba(255,255,255,0.08);
+color:#EAF2FF;
+font-size:13px;
+text-decoration:none;
+}
+
+.action-btn i{
+color:var(--accent);
+}
+
+.content{
+padding:34px 38px 86px;
+max-width:1160px;
+}
+
+.badge{
+display:inline-flex;
+align-items:center;
+gap:10px;
+padding:8px 13px;
+border-radius:999px;
+background:rgba(94,136,193,0.12);
+border:1px solid rgba(94,136,193,0.28);
+color:#C4D7F3;
+font-size:12px;
+font-weight:600;
+margin-bottom:18px;
+}
+
+.badge i{
+color:var(--accent);
+}
+
+h1{
+font-family:'Orbitron',sans-serif;
+font-size:clamp(30px,4.2vw,54px);
+line-height:1.05;
+text-transform:uppercase;
+letter-spacing:0;
+max-width:780px;
+}
+
+.gradient-title{
+background:linear-gradient(90deg,#fff,#F0C55A);
+-webkit-background-clip:text;
+-webkit-text-fill-color:transparent;
+}
+
+.lead{
+font-size:15px;
+line-height:1.6;
+color:#C4D7F3;
+max-width:720px;
+margin-top:14px;
+}
+
+.catalog-head{
+display:flex;
+align-items:end;
+justify-content:space-between;
+gap:24px;
+margin:34px 0 16px;
+}
+
+.catalog-head h2{
+font-family:'Orbitron',sans-serif;
+font-size:20px;
+text-transform:uppercase;
+color:#fff;
+}
+
+.catalog-head span{
+color:#7F9BC0;
+font-size:13px;
+}
+
+.grid-2{
+display:grid;
+grid-template-columns:repeat(2, minmax(0, 1fr));
+gap:16px;
+}
+
+.card{
+position:relative;
+display:flex;
+flex-direction:column;
+min-height:220px;
+padding:22px;
+border-radius:16px;
+background:var(--card);
+border:1px solid var(--border);
+overflow:hidden;
+text-decoration:none;
+color:white;
+transition:0.35s;
+}
+
+.card:hover{
+transform:translateY(-3px);
+border-color:rgba(240,197,90,0.45);
+background:rgba(8,24,48,0.84);
+}
+
+.card::before{
+content:'';
+position:absolute;
+top:0;
+left:0;
+right:0;
+height:4px;
+background:linear-gradient(90deg,var(--accent),var(--light));
+}
+
+.card > i{
+font-size:28px;
+color:var(--accent);
+margin-bottom:14px;
+}
+
+.card h3{
+font-size:20px;
+line-height:1.18;
+margin-bottom:10px;
+}
+
+.card p{
+font-size:13px;
+line-height:1.55;
+color:#C4D7F3;
+}
+
+.card-meta{
+display:flex;
+flex-wrap:wrap;
+gap:8px;
+margin-top:14px;
+}
+
+.pill{
+display:inline-flex;
+align-items:center;
+gap:7px;
+padding:6px 9px;
+border-radius:999px;
+background:rgba(255,255,255,0.04);
+border:1px solid rgba(255,255,255,0.07);
+color:#B4C7E7;
+font-size:12px;
+}
+
+.pill i{
+font-size:11px;
+color:var(--accent);
+margin:0;
+}
+
+.open-row{
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:14px;
+margin-top:auto;
+padding-top:18px;
+color:var(--accent);
+font-weight:700;
+font-size:12px;
+text-transform:uppercase;
+}
+
+.open-row i{
+font-size:18px;
+margin:0;
+}
+
+.slide-footer{
+position:fixed;
+left:260px;
+right:0;
+bottom:0;
+height:60px;
+display:flex;
+align-items:center;
+justify-content:center;
+gap:30px;
+padding:0 55px;
+background:linear-gradient(to top,rgba(2,11,22,0.95) 60%,transparent);
+z-index:90;
+pointer-events:none;
+transition:left 0.28s ease;
+}
+
+.slide-footer::before,
+.slide-footer::after{
+content:'';
+height:1px;
+flex:1;
+background:linear-gradient(90deg,transparent,rgba(240,197,90,0.3));
+}
+
+.slide-footer img{
+width:160px;
+opacity:0.85;
+}
+
+body.sidebar-collapsed .sidebar{
+width:78px;
+padding:24px 12px;
+overflow:hidden;
+}
+
+body.sidebar-collapsed .sidebar-collapse-btn i{
+transform:rotate(180deg);
+}
+
+body.sidebar-collapsed .logo{
+margin-top:0;
+margin-bottom:24px;
+}
+
+body.sidebar-collapsed .logo img{
+width:52px;
+}
+
+.logo .logo-compact{
+display:none;
+}
+
+body.sidebar-collapsed .logo .logo-wide{
+display:none;
+}
+
+body.sidebar-collapsed .logo .logo-compact{
+display:block;
+width:42px;
+margin:0 auto;
+}
+
+body.sidebar-collapsed .training-title,
+body.sidebar-collapsed .training-subtitle,
+body.sidebar-collapsed .menu-title,
+body.sidebar-collapsed .progress-card,
+body.sidebar-collapsed .menu-item strong,
+body.sidebar-collapsed .menu-item span{
+display:none;
+}
+
+body.sidebar-collapsed .menu-item{
+justify-content:center;
+padding:14px 0;
+border-radius:14px;
+}
+
+body.sidebar-collapsed .menu-item:hover,
+body.sidebar-collapsed .menu-item.active{
+transform:none;
+}
+
+body.sidebar-collapsed .main{
+margin-left:78px;
+}
+
+body.sidebar-collapsed .slide-footer{
+left:78px;
+}
+
+@media(max-width:980px){
+.sidebar{
+position:relative;
+width:100%;
+height:auto;
+display:block;
+}
+.main{
+margin-left:0;
+}
+.topbar{
+position:relative;
+padding:0 20px;
+}
+.content{
+padding:32px 20px 84px;
+}
+.grid-2{
+grid-template-columns:1fr;
+}
+.slide-footer{
+left:0;
+}
+
+body.sidebar-collapsed .main{
+margin-left:0;
+}
+
+body.sidebar-collapsed .slide-footer{
+left:0;
+}
+
+body.sidebar-collapsed .sidebar{
+width:100%;
+padding:24px 18px;
+overflow-y:auto;
+}
+
+body.sidebar-collapsed .training-title,
+body.sidebar-collapsed .training-subtitle,
+body.sidebar-collapsed .menu-title,
+body.sidebar-collapsed .progress-card,
+body.sidebar-collapsed .menu-item strong,
+body.sidebar-collapsed .menu-item span{
+display:block;
+}
+
+body.sidebar-collapsed .logo{
+margin-top:0;
+margin-bottom:22px;
+}
+
+body.sidebar-collapsed .logo img{
+width:168px;
+}
+
+body.sidebar-collapsed .logo .logo-wide{
+display:block;
+}
+
+body.sidebar-collapsed .logo .logo-compact{
+display:none;
+}
+}
+
+@media(max-width:640px){
+.topbar{
+height:auto;
+min-height:68px;
+align-items:flex-start;
+flex-direction:column;
+padding:16px;
+}
+.top-actions{
+width:100%;
+}
+.action-btn{
+width:100%;
+justify-content:center;
+}
+.catalog-head{
+align-items:flex-start;
+flex-direction:column;
+}
+.card{
+min-height:0;
+padding:22px;
+}
+}
+
+body.light-mode{
+background:#F4F7FB;
+color:#102033;
+}
+
+body.light-mode::before{
+background:radial-gradient(circle at top right,rgba(94,136,193,0.18),transparent 35%),radial-gradient(circle at bottom left,rgba(240,197,90,0.14),transparent 25%),linear-gradient(135deg,#F8FAFE,#EAF0F8,#DDE8F5);
+}
+
+body.light-mode::after{
+background-image:linear-gradient(rgba(0,52,103,0.055) 1px,transparent 1px),linear-gradient(90deg,rgba(0,52,103,0.055) 1px,transparent 1px);
+opacity:0.55;
+}
+
+body.light-mode .sidebar,
+body.light-mode .topbar,
+body.light-mode .card,
+body.light-mode .progress-card{
+background:rgba(255,255,255,0.78);
+border-color:rgba(0,52,103,0.16);
+box-shadow:0 18px 55px rgba(0,52,103,0.08);
+}
+
+body.light-mode .training-subtitle,
+body.light-mode .topbar-title,
+body.light-mode .lead,
+body.light-mode .menu-item span,
+body.light-mode .progress-info,
+body.light-mode .card p,
+body.light-mode #catalogCount{
+color:#37506F;
+}
+
+body.light-mode .menu-title{
+color:#45617F;
+}
+
+body.light-mode .menu-item,
+body.light-mode .action-btn,
+body.light-mode .pill{
+background:rgba(0,52,103,0.045);
+border-color:rgba(0,52,103,0.08);
+color:#102033;
+}
+
+body.light-mode .menu-item:hover,
+body.light-mode .menu-item.active,
+body.light-mode .action-btn:hover{
+background:rgba(94,136,193,0.13);
+border-color:rgba(0,52,103,0.18);
+}
+
+body.light-mode .slide-footer{
+background:linear-gradient(to top,rgba(244,247,251,0.96) 60%,transparent);
+}
+
+body.light-mode .sidebar-collapse-btn{
+background:rgba(0,52,103,0.06);
+border-color:rgba(0,52,103,0.14);
+}
+
+body.light-mode .gradient-title{
+background:linear-gradient(90deg,#003467,#1F6EAA 58%,#B88A22);
+-webkit-background-clip:text;
+-webkit-text-fill-color:transparent;
+}
+
+body.light-mode h1,
+body.light-mode h2,
+body.light-mode h3,
+body.light-mode .card,
+body.light-mode .open-row,
+body.light-mode .pill,
+body.light-mode .menu-item strong{
+color:#102033;
+}
+
+body.light-mode .action-btn,
+body.light-mode .sidebar-collapse-btn,
+body.light-mode .theme-toggle{
+background:linear-gradient(180deg,rgba(255,255,255,0.96),rgba(235,242,250,0.92));
+border-color:rgba(0,52,103,0.22);
+color:#0E2F53;
+box-shadow:0 8px 22px rgba(0,52,103,0.08);
+}
+
+body.light-mode .action-btn i,
+body.light-mode .sidebar-collapse-btn i,
+body.light-mode .theme-toggle i{
+color:#003467;
+}
+
+body.light-mode .action-btn:hover,
+body.light-mode .sidebar-collapse-btn:hover,
+body.light-mode .theme-toggle:hover{
+background:linear-gradient(180deg,rgba(231,240,252,0.98),rgba(213,229,247,0.95));
+border-color:rgba(0,52,103,0.32);
+}
+
+body.light-mode .theme-toggle{
+border-color:rgba(184,138,34,0.35);
+}
+
+body.light-mode .theme-toggle i{
+color:#B88A22;
+}
+
+.theme-toggle{
+width:38px;
+min-width:38px;
+padding:0;
+aspect-ratio:1;
+}
+</style>
+</head>
+<body>
+<aside class="sidebar">
+<div class="logo">
+<img class="logo-wide" data-asset="logo3f" alt="3F Contact Center">
+<img class="logo-compact" data-asset="logo3fVertical" alt="3F Contact Center">
+</div>
+
+<div class="training-title">
+Universidade<br>Corporativa
+</div>
+
+<div class="training-subtitle">
+Catálogo Local<br>
+• Treinamentos • Operação Interna
+</div>
+
+<div class="menu-title">Áreas</div>
+<nav class="menu" aria-label="Áreas de treinamento">
+<a class="menu-item active" href="#catalogo">
+<i class="fas fa-house"></i>
+<div><strong>Catálogo</strong><span>Todos os treinamentos</span></div>
+</a>
+<a class="menu-item" href="decks/Planejamento/control_desk_universidade_corporativa_v_3.html">
+<i class="fas fa-chart-line"></i>
+<div><strong>Planejamento</strong><span>Control Desk</span></div>
+</a>
+<a class="menu-item" href="decks/rh/feedback_360_v1.html">
+<i class="fas fa-users"></i>
+<div><strong>RH</strong><span>Feedback 360</span></div>
+</a>
+</nav>
+
+<div class="progress-card">
+<h4>PUBLICAÇÃO LOCAL</h4>
+<div class="progress-info">
+<span>Treinamentos</span>
+<span style="color:#74FF9F;">2 online</span>
+</div>
+</div>
+</aside>
+
+<main class="main">
+<header class="topbar">
+<div class="topbar-left">
+<button class="sidebar-collapse-btn" type="button" onclick="toggleSidebarCollapse()" title="Recolher menu lateral" aria-label="Recolher menu lateral"><i class="fas fa-chevron-left"></i></button>
+<div class="topbar-title">3F Contact Center • Universidade Corporativa</div>
+</div>
+<div class="top-actions">
+<a class="action-btn" href="http://localhost:8091" id="generatorLink"><i class="fas fa-wand-magic-sparkles"></i> <span>Gerador</span></a>
+<a class="action-btn" href="README.md"><i class="fas fa-file-lines"></i> <span>README</span></a>
+<button class="action-btn theme-toggle" type="button" onclick="toggleTheme()" title="Alternar tema" aria-label="Alternar tema"><i class="fas fa-sun"></i></button>
+</div>
+</header>
+
+<section class="content" id="catalogo">
+<div class="badge"><i class="fas fa-server"></i> Ambiente Local</div>
+<h1>TREINAMENTOS<br><span class="gradient-title">3F CONTACT CENTER</span></h1>
+<p class="lead">Catálogo interno dos decks de treinamento da operação, publicado em ambiente local para consulta rápida.</p>
+
+<div class="catalog-head">
+<h2>Catálogo</h2>
+<span id="catalogCount">Selecione um treinamento para iniciar</span>
+</div>
+
+<div class="grid-2" id="catalogGrid">
+<a class="card" href="decks/Planejamento/control_desk_universidade_corporativa_v_3.html">
+<i class="fas fa-headset"></i>
+<h3>Control Desk<br>Gestão em Tempo Real</h3>
+<p>Treinamento corporativo sobre monitoria operacional, KPIs críticos, tempo real e proteção da operação.</p>
+<div class="card-meta">
+<span class="pill"><i class="fas fa-layer-group"></i> Planejamento</span>
+<span class="pill"><i class="fas fa-code-branch"></i> v3</span>
+<span class="pill"><i class="fas fa-circle-check"></i> Pronto</span>
+</div>
+<div class="open-row"><span>Abrir treinamento</span><i class="fas fa-arrow-right"></i></div>
+</a>
+
+<a class="card" href="decks/rh/feedback_360_v1.html">
+<i class="fas fa-circle-nodes"></i>
+<h3>Sistema de<br>Feedback 360°</h3>
+<p>Guia rápido para avaliados e avaliadores, com prints do sistema, privacidade, escala e boas práticas.</p>
+<div class="card-meta">
+<span class="pill"><i class="fas fa-layer-group"></i> RH</span>
+<span class="pill"><i class="fas fa-code-branch"></i> v1</span>
+<span class="pill"><i class="fas fa-circle-check"></i> Pronto</span>
+</div>
+<div class="open-row"><span>Abrir treinamento</span><i class="fas fa-arrow-right"></i></div>
+</a>
+</div>
+</section>
+
+<div class="slide-footer">
+<img data-asset="logo3f" alt="3F Contact Center">
+</div>
+</main>
+
+<script>
+function applyConfiguredAssets(mode=localStorage.getItem('3f-theme')||'dark'){
+const light=mode==='light';
+document.body.classList.toggle('light-mode',light);
+document.querySelectorAll('[data-asset]').forEach((el)=>{
+const key=el.dataset.asset;
+const lightKey=`${key}Light`;
+const asset=window.TRAINING_CONFIG.assets[light&&window.TRAINING_CONFIG.assets[lightKey]?lightKey:key];
+if(!asset){
+console.warn(`Asset nao configurado: ${key}`);
+return;
+}
+if(el.tagName==='IMG'){
+el.src=asset;
+}else{
+el.style.backgroundImage=`url("${asset}")`;
+}
+});
+document.querySelectorAll('.theme-toggle').forEach((btn)=>{
+btn.innerHTML=light?'<i class="fas fa-moon"></i>':'<i class="fas fa-sun"></i>';
+btn.setAttribute('aria-label',light?'Ativar tema escuro':'Ativar tema claro');
+btn.setAttribute('title',light?'Ativar tema escuro':'Ativar tema claro');
+});
+}
+
+function setTheme(mode){
+localStorage.setItem('3f-theme',mode);
+applyConfiguredAssets(mode);
+}
+
+function toggleTheme(){
+setTheme(document.body.classList.contains('light-mode')?'dark':'light');
+}
+
+applyConfiguredAssets();
+document.getElementById('generatorLink').href=`${location.protocol}//${location.hostname}:8091`;
+
+function toggleSidebarCollapse(){
+document.body.classList.toggle('sidebar-collapsed');
+}
+
+function iconForArea(area){
+const normalized=String(area||'').toLowerCase();
+if(normalized.includes('rh')) return 'fa-users';
+if(normalized.includes('planejamento')) return 'fa-headset';
+if(normalized.includes('opera')) return 'fa-headset';
+if(normalized.includes('qualidade')) return 'fa-star';
+return 'fa-layer-group';
+}
+
+function escapeHtml(value){
+return String(value??'')
+.replaceAll('&','&amp;')
+.replaceAll('<','&lt;')
+.replaceAll('>','&gt;')
+.replaceAll('"','&quot;');
+}
+
+async function loadCatalog(){
+try{
+const response=await fetch('catalog.json',{cache:'no-store'});
+if(!response.ok) throw new Error('catalog unavailable');
+const data=await response.json();
+const trainings=Array.isArray(data.trainings)?data.trainings:[];
+if(!trainings.length) return;
+document.getElementById('catalogCount').textContent=`${trainings.length} treinamentos disponíveis`;
+document.getElementById('catalogGrid').innerHTML=trainings.map((item)=>`
+<a class="card" href="${escapeHtml(item.file)}">
+<i class="fas ${iconForArea(item.area)}"></i>
+<h3>${escapeHtml(item.title)}</h3>
+<p>${escapeHtml(item.description||'Treinamento corporativo publicado no catálogo local.')}</p>
+<div class="card-meta">
+<span class="pill"><i class="fas fa-layer-group"></i> ${escapeHtml(item.area||'Geral')}</span>
+<span class="pill"><i class="fas fa-code-branch"></i> ${escapeHtml(item.version||'v1')}</span>
+<span class="pill"><i class="fas fa-circle-check"></i> ${escapeHtml(item.status||'Publicado')}</span>
+</div>
+<div class="open-row"><span>Abrir treinamento</span><i class="fas fa-arrow-right"></i></div>
+</a>`).join('');
+}catch(error){
+console.warn('Catalogo JSON indisponivel; usando cards estaticos.',error);
+}
+}
+
+loadCatalog();
+</script>
+</body>
+</html>

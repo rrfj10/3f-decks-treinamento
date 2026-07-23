@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gerador de Treinamentos 3F</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&family=Orbitron:wght@500;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--accent:#F0C55A;--light:#5E88C1;--blue:#4EA5FF;--green:#74FF9F;--warn:#F0C55A;--danger:#FF7474;--ink:#F4F7FF;--muted:#91A9CC;--soft:#C4D7F3;--line:rgba(94,136,193,.28);--panel:rgba(4,17,33,.82);--panel-strong:rgba(5,20,39,.92)}
+body{min-height:100vh;font-family:'Montserrat',sans-serif;color:var(--ink);background:#020B16;overflow:hidden}
+body:before{content:'';position:fixed;inset:0;background:radial-gradient(circle at 78% 18%,rgba(94,136,193,.18),transparent 34%),radial-gradient(circle at 48% 92%,rgba(0,52,103,.42),transparent 36%),linear-gradient(135deg,#010812,#021325 48%,#001120);z-index:-2}
+body:after{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:34px 34px;opacity:.32;z-index:-1}
+.app{height:100vh;display:grid;grid-template-columns:260px 1fr;border:1px solid rgba(255,255,255,.08);background:rgba(1,10,20,.34);transition:grid-template-columns .28s ease}
+.sidebar{position:relative;padding:26px 22px;border-right:1px solid rgba(255,255,255,.07);background:rgba(0,0,0,.28);overflow:auto;transition:padding .28s ease}
+.sidebar:after{content:'';position:absolute;right:0;top:0;width:4px;height:45%;background:linear-gradient(var(--accent),rgba(240,197,90,0));border-radius:999px}
+.sidebar-collapse-btn{width:34px;height:34px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:var(--accent);cursor:pointer;display:grid;place-items:center;transition:.25s}
+.sidebar-collapse-btn:hover{background:rgba(240,197,90,.12);border-color:rgba(240,197,90,.3)}
+.brand-logo{width:176px;height:auto;object-fit:contain;margin-bottom:34px;transition:width .28s ease,margin .28s ease}
+.brand-logo-compact{display:none;width:42px;height:auto;object-fit:contain;margin:0 auto 28px;transition:width .28s ease,margin .28s ease}
+.training-title{font-family:'Orbitron',sans-serif;font-size:25px;line-height:1.1;color:var(--accent);text-transform:uppercase;margin-bottom:14px}
+.training-subtitle{font-size:13px;line-height:1.55;color:#B8C9E8;margin-bottom:32px}
+.side-label{font-size:12px;font-weight:700;text-transform:uppercase;color:#8299BA;margin-bottom:14px}
+.module-list{display:grid;gap:12px}
+.module{display:flex;align-items:center;gap:13px;padding:15px 16px;border-radius:8px;background:rgba(255,255,255,.025);border:1px solid transparent;color:#DCEAFF}
+.module.active{background:rgba(94,136,193,.14);border-color:rgba(94,136,193,.28)}
+.module i{width:22px;text-align:center;color:var(--accent)}
+.module strong{display:block;font-size:14px}
+.module span{display:block;margin-top:2px;font-size:12px;color:#AABCDD}
+body.sidebar-collapsed .app{grid-template-columns:78px 1fr}
+body.sidebar-collapsed .sidebar{padding:26px 12px;overflow:hidden}
+body.sidebar-collapsed .sidebar-collapse-btn i{transform:rotate(180deg)}
+body.sidebar-collapsed .brand-logo{display:none}
+body.sidebar-collapsed .brand-logo-compact{display:block}
+body.sidebar-collapsed .training-title,
+body.sidebar-collapsed .training-subtitle,
+body.sidebar-collapsed .side-label,
+body.sidebar-collapsed .module strong,
+body.sidebar-collapsed .module span{display:none}
+body.sidebar-collapsed .module{justify-content:center;padding:14px 0}
+.main{min-width:0;height:100vh;display:grid;grid-template-rows:78px 1fr 64px;overflow:hidden}
+.topbar{display:grid;grid-template-columns:1fr auto;align-items:center;gap:20px;padding:0 30px;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(0,0,0,.14);backdrop-filter:blur(14px)}
+.progress-wrap span{display:block;font-size:12px;font-weight:700;color:#AABCDD;text-transform:uppercase;margin-bottom:11px}
+.progress-head{display:flex;align-items:center;gap:10px;margin-bottom:11px}
+.progress-head span{margin-bottom:0}
+.bar{height:7px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden;border:1px solid rgba(255,255,255,.08)}
+.bar-fill{height:100%;width:0;background:linear-gradient(90deg,var(--accent),#F7D978);border-radius:999px}
+.top-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:9px 15px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.035);color:#fff;text-decoration:none;font:700 12px/1 'Montserrat',sans-serif;cursor:pointer;transition:.2s ease;white-space:nowrap}
+.btn:hover{background:rgba(240,197,90,.12);border-color:rgba(240,197,90,.34)}
+.btn i{color:var(--accent)}
+.btn.primary{background:linear-gradient(180deg,#EBC65E,#B98B25);border-color:rgba(240,197,90,.62);color:#fff;box-shadow:0 10px 28px rgba(240,197,90,.15)}
+.btn.primary i{color:#fff}
+.btn:disabled{opacity:.5;cursor:not-allowed;filter:saturate(.7)}
+.counter{font-family:'Orbitron',sans-serif;color:var(--accent);font-size:20px;font-weight:900;margin-left:10px}
+.stage{min-height:0;padding:14px 22px 10px;display:grid;grid-template-columns:480px minmax(0,1fr);gap:10px;overflow:hidden}
+.left-stack{min-height:0;display:grid;grid-template-rows:auto 1fr auto;gap:10px;overflow:hidden}
+.panel,.chat-card,.status-card{border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,rgba(8,23,44,.82),rgba(2,13,27,.86));box-shadow:0 18px 60px rgba(0,0,0,.22);overflow:hidden}
+.panel-head,.chat-head{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 15px;border-bottom:1px solid rgba(255,255,255,.08);color:#65B6FF}
+.panel h2{font-family:'Orbitron',sans-serif;font-size:14px;text-transform:uppercase;letter-spacing:0}
+.panel-body{padding:13px 15px}
+.brief-list{display:grid;gap:8px}
+.brief-row{display:grid;grid-template-columns:140px 1fr;gap:10px;font-size:13px;line-height:1.35}
+.brief-row span{color:#DDEAFF}
+.brief-row button{all:unset;color:#fff;cursor:pointer}
+.brief-row button.missing{color:var(--accent);font-weight:700}
+.route-panel{min-height:0}
+.route-top{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px;font-size:12px}
+.route-count strong{display:block;font-size:13px}
+.route-duration{color:#DDEAFF;text-align:right}
+.slides-list{display:grid;gap:5px}
+.slide-row{display:grid;grid-template-columns:22px 1fr;gap:8px;align-items:start;font-size:12px}
+.slide-num{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:#2F83DB;color:#fff;font-size:10px;font-weight:800}
+.slide-row strong{font-weight:600;line-height:1.3}
+.flags{display:grid;gap:7px;margin-top:10px}
+.flag{display:flex;align-items:center;justify-content:space-between;border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:8px 10px;font-size:11px;background:rgba(0,0,0,.1)}
+.flag b{background:rgba(116,255,159,.18);color:#AEFFC4;border-radius:999px;padding:2px 7px;font-size:10px}
+.status-card{padding:13px 15px}
+.status-left{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.status-icon{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:1px solid rgba(240,197,90,.42);color:var(--accent);background:rgba(240,197,90,.08)}
+.status-title{font-size:13px;font-weight:800;color:var(--warn)}
+.status-msg{font-size:12px;color:#E4EDFF;margin-top:4px;line-height:1.4}
+.progress-line{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center;font-size:12px;color:#fff}
+.result{margin-top:10px;padding:10px;border-radius:8px;background:rgba(116,255,159,.08);border:1px solid rgba(116,255,159,.18);color:#C9FFD8;font-size:12px;line-height:1.45}
+.result a{color:var(--accent)}
+.chat-card{min-height:0;display:flex;flex-direction:column}
+.chat-head{height:56px;padding:0 18px}
+.peer{font-size:15px;font-weight:800;color:#fff}
+.online{font-size:11px;color:#DDE9FF;margin-left:8px;font-weight:600}
+.online:before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:6px}
+.thread{flex:1;overflow:auto;padding:20px 18px;display:flex;flex-direction:column;gap:16px}
+.msg{display:flex;gap:11px;max-width:690px}
+.msg.user{align-self:flex-end;flex-direction:row-reverse}
+.avatar{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;border:1px solid rgba(255,255,255,.24);background:rgba(0,0,0,.22);color:var(--accent);font-family:'Orbitron';font-size:12px;flex:0 0 auto}
+.msg.user .avatar{background:linear-gradient(135deg,#4EA5FF,#174FBC);color:#fff;border:0}
+.bubble{width:max-content;max-width:600px;padding:13px 15px;border-radius:8px;background:linear-gradient(135deg,rgba(68,83,112,.68),rgba(32,45,70,.78));border:1px solid rgba(255,255,255,.07);font-size:13px;line-height:1.5;color:#F2F6FF;white-space:pre-wrap}
+.msg.user .bubble{background:linear-gradient(135deg,#145CC8,#0D3D93);border-color:rgba(78,165,255,.34)}
+.meta{font-size:10px;color:#AFC3E3;margin-top:5px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-left:47px}
+.chip{border:1px solid rgba(78,165,255,.72);background:rgba(78,165,255,.08);color:#9FD0FF;border-radius:6px;padding:8px 10px;font-size:11px;font-weight:700;cursor:pointer}
+.composer{display:grid;grid-template-columns:42px 1fr 124px;gap:10px;padding:12px 13px;border-top:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.2)}
+.icon-btn{width:42px;height:42px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.035);color:#CFE2FF}
+.composer textarea{height:42px;min-height:42px;max-height:120px;resize:none;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.035);color:#fff;padding:12px 13px;font:13px/1.35 'Montserrat',sans-serif}
+.footerbar{height:60px;display:flex;align-items:center;justify-content:center;gap:30px;padding:0 55px;background:linear-gradient(to top,rgba(2,11,22,.95) 60%,transparent);pointer-events:none}
+.footerbar:before,.footerbar:after{content:'';height:1px;flex:1;background:linear-gradient(90deg,transparent,rgba(240,197,90,.3))}
+.footer-mark{width:160px;opacity:.85}
+.hidden-fields{display:none}
+@media(max-width:1180px){body{overflow:auto}.app{height:auto;min-height:100vh;grid-template-columns:1fr}.sidebar{display:none}.main{height:auto;min-height:100vh;grid-template-rows:auto 1fr auto}.topbar{grid-template-columns:1fr;padding:16px}.top-actions{flex-wrap:wrap}.stage{grid-template-columns:1fr;overflow:visible}.left-stack{grid-template-rows:auto}.footerbar{display:none}}
+@media(max-width:680px){.stage{padding:10px}.btn{width:100%;min-height:40px}.counter{display:none}.top-actions{display:grid;grid-template-columns:1fr 1fr;width:100%}.brief-row{grid-template-columns:100px 1fr;font-size:12px}.composer{grid-template-columns:1fr}.icon-btn{display:none}.chat-card{height:70vh}.bubble{max-width:calc(100vw - 96px)}.chips{margin-left:0}.progress-line{grid-template-columns:1fr}}
+body.light-mode{background:#F4F7FB;color:#102033}
+body.light-mode:before{background:radial-gradient(circle at 78% 18%,rgba(94,136,193,.16),transparent 34%),radial-gradient(circle at 48% 92%,rgba(240,197,90,.16),transparent 36%),linear-gradient(135deg,#F8FAFE,#EAF0F8,#DDE8F5)}
+body.light-mode:after{background-image:linear-gradient(rgba(0,52,103,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(0,52,103,.055) 1px,transparent 1px);opacity:.55}
+body.light-mode .app,body.light-mode .sidebar,body.light-mode .topbar,body.light-mode .panel,body.light-mode .chat-card,body.light-mode .status-card{background:rgba(255,255,255,.78);border-color:rgba(0,52,103,.16);box-shadow:0 18px 55px rgba(0,52,103,.08)}
+body.light-mode .module,body.light-mode .btn,body.light-mode .icon-btn,body.light-mode .composer textarea,body.light-mode .flag{background:rgba(0,52,103,.045);border-color:rgba(0,52,103,.1);color:#102033}
+body.light-mode .module.active,body.light-mode .module:hover,body.light-mode .btn:hover{background:rgba(94,136,193,.13);border-color:rgba(0,52,103,.18)}
+body.light-mode .training-subtitle,body.light-mode .side-label,body.light-mode .module span,body.light-mode .status-msg,body.light-mode .route-duration,body.light-mode .progress-wrap span,body.light-mode .footerbar{color:#37506F}
+body.light-mode .bubble{background:linear-gradient(135deg,rgba(255,255,255,.9),rgba(230,237,247,.92));border-color:rgba(0,52,103,.12);color:#102033}
+body.light-mode .msg.user .bubble{background:linear-gradient(135deg,#D8E8FF,#BFD7F5);color:#0D2B4D}
+body.light-mode .composer,body.light-mode .chat-head,body.light-mode .panel-head{background:rgba(255,255,255,.35);border-color:rgba(0,52,103,.11)}
+body.light-mode .footerbar{background:linear-gradient(to top,rgba(244,247,251,.96) 60%,transparent)}
+body.light-mode .training-title,
+body.light-mode .peer,
+body.light-mode .panel h2,
+body.light-mode .brief-row span,
+body.light-mode .brief-row button,
+body.light-mode .route-count strong,
+body.light-mode .route-count span,
+body.light-mode .slide-row strong,
+body.light-mode .progress-line,
+body.light-mode .counter,
+body.light-mode .composer textarea::placeholder{
+color:#102033;
+}
+
+body.light-mode .brief-row button.missing,
+body.light-mode .status-title{
+color:#8A640C;
+}
+
+body.light-mode .online,
+body.light-mode .meta{
+color:#37506F;
+}
+
+body.light-mode .btn,
+body.light-mode .icon-btn,
+body.light-mode .sidebar-collapse-btn{
+background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(235,242,250,.92));
+border-color:rgba(0,52,103,.22);
+color:#0E2F53;
+box-shadow:0 8px 22px rgba(0,52,103,.08);
+}
+
+body.light-mode .btn i,
+body.light-mode .icon-btn i,
+body.light-mode .sidebar-collapse-btn i{
+color:#003467;
+}
+
+body.light-mode .btn:hover,
+body.light-mode .icon-btn:hover,
+body.light-mode .sidebar-collapse-btn:hover{
+background:linear-gradient(180deg,rgba(231,240,252,.98),rgba(213,229,247,.95));
+border-color:rgba(0,52,103,.32);
+}
+
+body.light-mode .btn.primary{
+background:linear-gradient(180deg,#F1C95E,#C7982A);
+border-color:rgba(184,138,34,.45);
+color:#102033;
+box-shadow:0 10px 24px rgba(184,138,34,.16);
+}
+
+body.light-mode .btn.primary i{
+color:#102033;
+}
+
+body.light-mode .btn:disabled{
+opacity:.58;
+background:rgba(0,52,103,.045);
+color:#6A7890;
+box-shadow:none;
+}
+
+body.light-mode .chip{
+background:rgba(0,52,103,.06);
+border-color:rgba(0,52,103,.24);
+color:#003467;
+}
+
+body.light-mode .chip:hover{
+background:rgba(94,136,193,.14);
+border-color:rgba(0,52,103,.34);
+}
+
+.theme-toggle{
+width:38px;
+min-width:38px;
+padding:0;
+aspect-ratio:1;
+}
+</style>
+</head>
+<body>
+<main class="app">
+<aside class="sidebar">
+<img class="brand-logo" src="" id="brandLogo" alt="3F Contact Center">
+<img class="brand-logo-compact" src="" id="brandLogoCompact" alt="3F Contact Center">
+<div class="training-title">Gerador de Treinamentos</div>
+<div class="training-subtitle">Ferramenta conversacional para criar apresentações no padrão 3F.</div>
+<div class="side-label">Módulos</div>
+<nav class="module-list" aria-label="Módulos do gerador">
+<div class="module active"><i class="fas fa-house"></i><div><strong>Briefing</strong><span>Coleta inicial</span></div></div>
+<div class="module"><i class="fas fa-circle-info"></i><div><strong>Objetivo</strong><span>Foco do treinamento</span></div></div>
+<div class="module"><i class="fas fa-bullseye"></i><div><strong>Roteiro</strong><span>Estrutura dos slides</span></div></div>
+<div class="module"><i class="fas fa-chart-line"></i><div><strong>Geração</strong><span>Deck no padrão 3F</span></div></div>
+<div class="module"><i class="fas fa-triangle-exclamation"></i><div><strong>Revisão</strong><span>Ajustes finais</span></div></div>
+</nav>
+</aside>
+
+<section class="main">
+<header class="topbar">
+<div class="progress-wrap">
+<div class="progress-head">
+<button class="sidebar-collapse-btn" id="sidebarCollapseBtn" type="button" title="Recolher menu lateral" aria-label="Recolher menu lateral"><i class="fas fa-chevron-left"></i></button>
+<span id="progressText">Briefing 0% completo</span>
+</div>
+<div class="bar"><div class="bar-fill" id="briefingBar"></div></div>
+</div>
+<div class="top-actions">
+<a class="btn" href="http://localhost:8088" id="catalogLink"><i class="fas fa-house"></i> Catálogo</a>
+<button class="btn" id="draftBtn" type="button"><i class="fas fa-keyboard"></i> Atalhos</button>
+<button class="btn" id="fullscreenBtn" type="button"><i class="fas fa-expand"></i> Tela Cheia</button>
+<button class="btn" id="resetBtn" type="button"><i class="fas fa-rotate-left"></i> Reiniciar</button>
+<button class="btn primary" id="generateBtn" title="Informe os dados obrigatórios para continuar"><i class="fas fa-wand-magic-sparkles"></i> Gerar</button>
+<div class="counter" id="slideCount">0 slides</div>
+<button class="btn theme-toggle" id="themeBtn" type="button" title="Alternar tema" aria-label="Alternar tema"><i class="fas fa-sun"></i></button>
+</div>
+</header>
+
+<section class="stage">
+<div class="left-stack">
+<article class="status-card" id="statusCard">
+<div class="status-left">
+<div class="status-icon"><i class="fas fa-clipboard-check"></i></div>
+<div>
+<div class="status-title" id="statusTitle">Faltam informações</div>
+<div class="status-msg" id="statusBox">Precisamos definir o público-alvo e a duração do treinamento.</div>
+</div>
+</div>
+<div class="result" id="resultBox" hidden></div>
+</article>
+
+<article class="panel">
+<header class="panel-head"><h2><i class="fas fa-clipboard-list"></i> Briefing</h2><i class="fas fa-pen"></i></header>
+<div class="panel-body">
+<div class="brief-list" id="briefingPanel"></div>
+</div>
+</article>
+
+<article class="panel route-panel">
+<header class="panel-head"><h2><i class="fas fa-rectangle-list"></i> Roteiro Estimado</h2></header>
+<div class="panel-body">
+<div class="route-top">
+<div class="route-count"><strong>Estrutura resumida</strong><span>Prévia do treinamento</span></div>
+<div class="route-duration" id="routeDuration">Duração estimada: --</div>
+</div>
+<div class="slides-list" id="slidesPreview"></div>
+</div>
+</article>
+</div>
+
+<section class="chat-card">
+<header class="chat-head">
+<div class="peer">Assistente de Treinamentos 3F <span class="online">Online</span></div>
+<button class="btn" id="resetTopBtn" type="button"><i class="fas fa-rotate-left"></i> Reiniciar conversa</button>
+</header>
+<section class="thread" id="thread" aria-live="polite"></section>
+<form class="composer" id="composer">
+<button class="icon-btn" type="button" title="Anexos indisponíveis nesta versão"><i class="fas fa-paperclip"></i></button>
+<textarea id="chatInput" placeholder="Digite sua mensagem..." required></textarea>
+<button class="btn primary" type="submit">Enviar <i class="fas fa-paper-plane"></i></button>
+</form>
+</section>
+</section>
+
+<footer class="footerbar">
+<img class="footer-mark" src="" id="footerLogo" alt="3F Contact Center">
+</footer>
+
+<section class="hidden-fields">
+<a href="http://localhost:8088" id="catalogLinkBottom"></a>
+<input id="title"><input id="theme"><input id="area"><input id="audience"><input id="objective"><input id="duration"><input id="level"><input id="tone"><input id="slideTarget"><input id="practice"><input id="evaluation"><textarea id="description"></textarea>
+</section>
+</section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

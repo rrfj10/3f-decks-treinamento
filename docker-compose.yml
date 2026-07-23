@@ -1,0 +1,29 @@
+services:
+  treinamentos-3f:
+    image: nginx:1.27-alpine
+    container_name: treinamentos-3f
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    volumes:
+      - ./treinamentos:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+  treinamentos-generator:
+    image: node:22-alpine
+    container_name: treinamentos-generator
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "generator/server.mjs"]
+    ports:
+      - "8091:3000"
+    environment:
+      TRAINING_ROOT: /app/treinamentos
+      PORT: 3000
+      LLM_MODEL: ${LLM_MODEL:-gpt-4.1-mini}
+      LLM_API_URL: ${LLM_API_URL:-https://api.openai.com/v1/chat/completions}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - ./generator:/app/generator:ro
+      - ./treinamentos:/app/treinamentos

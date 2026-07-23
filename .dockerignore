@@ -1,0 +1,9 @@
+.DS_Store
+_dl
+_dl-output
+.agents
+.claude
+.github
+.opencode
+node_modules
+npm-debug.log

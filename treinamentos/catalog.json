@@ -1,0 +1,20 @@
+{
+  "trainings": [
+    {
+      "title": "Control Desk - Gestão em Tempo Real",
+      "area": "Planejamento",
+      "version": "v3",
+      "file": "decks/Planejamento/control_desk_universidade_corporativa_v_3.html",
+      "status": "Pronto",
+      "description": "Treinamento corporativo sobre monitoria operacional, KPIs críticos, tempo real e proteção da operação."
+    },
+    {
+      "title": "Sistema de Feedback 360°",
+      "area": "RH",
+      "version": "v1",
+      "file": "decks/rh/feedback_360_v1.html",
+      "status": "Pronto",
+      "description": "Guia rápido para avaliados e avaliadores, com prints do sistema, privacidade, escala e boas práticas."
+    }
+  ]
+}

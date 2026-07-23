@@ -1,0 +1,11 @@
+Logo 3F real salva localmente para os treinamentos:
+
+_assets/logos/Logo_horizontal_branca.png
+
+Regra: os decks devem apontar para esta logo local por meio de window.TRAINING_CONFIG.assets.
+
+URL original da logo 3F:
+
+https://storage.directlinecontactcenter.com.br/docspost/Logo_horizontal_branca.png
+
+Obs: essa URL e apenas o storage onde a logo da 3F fica hospedada. Nao e marca DirectLine.

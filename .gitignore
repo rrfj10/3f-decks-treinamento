@@ -1,0 +1,61 @@
+# ── OS ──
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+
+# ── Editores / IDE ──
+*.swp
+*.swo
+*~
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# ── Node (tools, ex: _dl/_tools/virtual-office) ──
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# ── Build / cache ──
+dist/
+**/dist/
+build/
+.cache/
+.vite/
+.turbo/
+*.tsbuildinfo
+
+# ── Ambiente / segredos ──
+.env
+.env.*
+!.env.example
+*.local
+
+# ── Configuração local de agentes ──
+.agents/
+.claude/
+.opencode/
+.github/skills/
+
+# ── Logs / temporários ──
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+
+# ── Método DL (DL-METHOD) — 100% ignorado ──
+_dl/
+_dl-output/
+
+# ── Notas: os decks HTML e treinamentos/_assets SÃO versionados (produto);
+#    a pasta treinamentos/ NÃO é ignorada. ──
