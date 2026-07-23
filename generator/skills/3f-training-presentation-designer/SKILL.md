@@ -13,6 +13,7 @@ Before major changes to the generator flow, briefing logic, slide structure, or 
 
 - `references/market-presentation-patterns.md`
 - `references/3f-template-contract.md`
+- `references/visual-infographic-patterns.md` when the user asks for visual charts, infographics, dashboards, roadmaps, objectives, products/services, plans, or presentation visuals inspired by references.
 - `references/call-center-training-review.md`
 
 ## Workflow

@@ -47,6 +47,24 @@ Body markup should reference assets through `data-asset` or the existing resolve
 - Unique fields should be overwritten when corrected.
 - Topics should be deduplicated by normalized text.
 - Missing required fields should appear in the status block and action tooltip.
+- When the user asks for visual charts, generated decks should use native visual slide types instead of replacing the request with tables or text-only explanations:
+  - `chart-bar` for bar/column comparisons.
+  - `chart-line` for trends and time series.
+  - `chart-pie` for share/distribution.
+  - `chart-funnel` for funnel stages.
+  - `decision-tree` for operational decision paths.
+- Chart slides should provide structured numeric data through `chart.labels`, `chart.unit`, and `chart.series[].values`. Tables may accompany charts, but should not be the only representation when the request is explicitly visual.
+- When the user asks for premium infographics, dashboards, visual summaries, roadmaps, objectives, plans/pricing, who-we-are blocks, products/services, or process diagrams, the generator should use native visual pattern slide types instead of plain cards:
+  - `metric-donut` for percentage/KPI rings and "resultados em números".
+  - `kpi-row` or `performance-summary` for KPI tiles, assessment summaries, and operational scoreboards.
+  - `infographic-timeline` for chronology, adoption cycles, change stages, and phased rollouts.
+  - `radial-steps` for circular step models and methods with 4-6 steps.
+  - `process-map` for connected flows, data transformation paths, roadmaps, and journeys.
+  - `icon-columns` for "quem somos", missão/visão/valores, products, services, and pillar slides.
+  - `pricing-table` for plan, package, investment, or tier comparisons.
+  - `objective-board` for objectives, goals, targets, and checklist-style strategic priorities.
+- Treat user-provided visual references as flexible taste guidance, not absolute rules. Prefer the shared direction: clean corporate layouts, strong hierarchy, large numeric anchors, icon-led blocks, blue/navy base, controlled gold/orange emphasis, clear connectors, generous whitespace, and readable data. Adapt the pattern to the training content instead of copying a reference literally.
+- For visual references similar to the "Modern Digital Transformation Infographic Presentation" PDF, preserve the reusable concepts: funnel stages, numbered drivers, adoption cycles, traditional-vs-digital comparisons, implementation roadmaps, data transformation flows, continuous improvement steps, change management stair-steps, innovation journey maps, and benefits-vs-challenges comparisons.
 - Generated decks must inherit:
   - official sidebar behavior;
   - official footer;

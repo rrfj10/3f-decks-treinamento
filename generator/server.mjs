@@ -657,6 +657,164 @@ async function writeCatalog(entry) {
   });
 }
 
+function extractChartSeriesFromText(value) {
+  const source = String(value || '');
+  const pairs = [];
+  const pattern = /([A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9\s/%.-]{1,42}?)\s+(?:atual|real|esperado|meta)?\s*[:=-]?\s*(-?\d+(?:[,.]\d+)?)(\s*%|\s*minutos?|\s*min)?/gi;
+  let match;
+  while ((match = pattern.exec(source)) && pairs.length < 8) {
+    const label = match[1].replace(/(?:atual|real|esperado|meta)$/i, '').trim();
+    const number = Number(String(match[2]).replace(',', '.'));
+    if (label && Number.isFinite(number)) pairs.push({ label, value: number });
+  }
+  return pairs;
+}
+
+function shouldCreateFallbackChart(input) {
+  const source = comparableText([
+    input.title,
+    input.theme,
+    input.objective,
+    input.description,
+    input.kpiTarget,
+    input.learningEvidence
+  ].join(' '));
+  return /(^|\s)(grafico|grafica|graficos|graficas)(\s|$)|linha|pizza|coluna|barra|funil|arvore de decisao|tendencia/.test(source);
+}
+
+function fallbackVisualPatternType(input) {
+  const source = comparableText([
+    input.title,
+    input.theme,
+    input.objective,
+    input.description,
+    input.learningEvidence
+  ].join(' '));
+  if (!/(infografico|visual|premium|dashboard|numero|resultado|objetivo|meta|plano|preco|produto|servico|quem somos|missao|visao|valor|timeline|linha do tempo|processo|etapa|jornada|fluxo)/.test(source)) return '';
+  if (/(plano|preco|precos|valor mensal|pacote|investimento)/.test(source)) return 'pricing-table';
+  if (/(objetivo|meta|metas|alvo)/.test(source)) return 'objective-board';
+  if (/(produto|servico|servicos|quem somos|missao|visao|valores)/.test(source)) return 'icon-columns';
+  if (/(timeline|linha do tempo|cronograma|periodo)/.test(source)) return 'infographic-timeline';
+  if (/(processo|etapa|jornada|passo|fluxo)/.test(source)) return 'radial-steps';
+  if (/(numero|numeros|resultado|dashboard|kpi|indicador|performance|desempenho)/.test(source)) return 'metric-donut';
+  return 'kpi-row';
+}
+
+function fallbackVisualPatternSlide(input) {
+  const type = fallbackVisualPatternType(input);
+  if (type === 'pricing-table') {
+    return {
+      type,
+      title: 'Planos de acompanhamento',
+      lead: 'Comparativo visual de opções para apoiar a decisão operacional.',
+      items: [
+        { icon: 'fa-circle-check', title: 'Plano Básico', text: 'R$ 500,00; Diagnóstico inicial; Checklist operacional; Relatório de resultados' },
+        { icon: 'fa-circle-check', title: 'Plano Médio', text: 'R$ 700,00; Planejamento estratégico; Acompanhamento quinzenal; Suporte por e-mail' },
+        { icon: 'fa-circle-check', title: 'Plano Premium', text: 'R$ 900,00; Consultoria completa; Relatórios avançados; Suporte prioritário' }
+      ]
+    };
+  }
+  if (type === 'objective-board') {
+    return {
+      type,
+      title: 'Objetivos operacionais',
+      lead: 'Metas práticas que o treinamento deve apoiar na rotina.',
+      items: [
+        { icon: 'fa-circle-check', title: 'Expandir consistência', text: text(input.objective) || 'Padronizar a execução do processo.' },
+        { icon: 'fa-circle-check', title: 'Aumentar resultado', text: text(input.kpiTarget) || 'Melhorar o indicador acompanhado pela liderança.' },
+        { icon: 'fa-circle-check', title: 'Otimizar rotina', text: text(input.behaviorChange) || 'Reduzir retrabalho e acelerar decisões.' }
+      ]
+    };
+  }
+  if (type === 'icon-columns') {
+    return {
+      type,
+      title: 'Pilares do treinamento',
+      lead: 'Resumo visual dos pontos que sustentam a aplicação prática.',
+      items: [
+        { icon: 'fa-bullseye', title: 'Missão', text: text(input.objective) || 'Alinhar a execução ao resultado esperado.' },
+        { icon: 'fa-eye', title: 'Visão', text: 'Ser referência em clareza, qualidade e consistência operacional.' },
+        { icon: 'fa-gem', title: 'Valores', text: 'Foco no cliente, responsabilidade e melhoria contínua.' }
+      ]
+    };
+  }
+  if (type === 'infographic-timeline') {
+    return {
+      type,
+      title: 'Linha do tempo de aplicação',
+      lead: 'Sequência recomendada para levar o conteúdo à operação.',
+      items: [
+        { icon: 'fa-1', title: 'Diagnosticar', text: 'Identificar cenário, KPI e dor operacional.' },
+        { icon: 'fa-2', title: 'Treinar', text: 'Praticar comportamento e regra de decisão.' },
+        { icon: 'fa-3', title: 'Aplicar', text: 'Executar na rotina com acompanhamento.' },
+        { icon: 'fa-4', title: 'Medir', text: 'Comparar evidências antes e depois.' }
+      ]
+    };
+  }
+  if (type === 'radial-steps') {
+    return {
+      type,
+      title: 'Etapas do método',
+      lead: 'Mapa visual para explicar o caminho de execução.',
+      items: [
+        { icon: 'fa-magnifying-glass-chart', title: 'Ler indicador', text: 'Entender o dado antes da ação.' },
+        { icon: 'fa-comments', title: 'Orientar time', text: 'Traduzir o dado em conduta esperada.' },
+        { icon: 'fa-list-check', title: 'Acompanhar', text: 'Validar execução com evidência.' },
+        { icon: 'fa-arrow-trend-up', title: 'Ajustar', text: 'Corrigir rota conforme o resultado.' }
+      ]
+    };
+  }
+  return {
+    type,
+    title: type === 'metric-donut' ? 'Resultados em números' : 'Indicadores principais',
+    lead: 'Painel visual para destacar indicadores e metas do treinamento.',
+    items: [
+      { icon: 'fa-face-smile', title: 'Satisfação', text: '67% dos clientes' },
+      { icon: 'fa-arrow-trend-up', title: 'Performance', text: '90% de aumento' },
+      { icon: 'fa-user-check', title: 'Retenção', text: '19% de retenção' }
+    ]
+  };
+}
+
+function fallbackChartSlide(input) {
+  const source = [input.description, input.kpiTarget, input.objective].join('\n');
+  const pairs = extractChartSeriesFromText(source);
+  const labels = pairs.length ? pairs.map((pair) => pair.label) : ['Atual', 'Meta', 'Esperado'];
+  const values = pairs.length ? pairs.map((pair) => pair.value) : [82, 90, 88];
+  const wanted = comparableText([input.title, input.theme, input.description].join(' '));
+  const type = wanted.includes('pizza')
+    ? 'chart-pie'
+    : wanted.includes('funil')
+      ? 'chart-funnel'
+      : wanted.includes('linha') || wanted.includes('tendencia')
+        ? 'chart-line'
+        : wanted.includes('arvore de decisao')
+          ? 'decision-tree'
+          : 'chart-bar';
+  if (type === 'decision-tree') {
+    return {
+      type,
+      title: 'Árvore de decisão operacional',
+      lead: 'Use a árvore para decidir a ação a partir do indicador observado.',
+      items: [
+        { icon: 'fa-question', title: 'Indicador fora da meta?', text: 'Sim: investigue a causa. Não: mantenha o monitoramento.' },
+        { icon: 'fa-code-branch', title: 'Capacidade ou processo?', text: 'Capacidade: ajuste escala. Processo: reforce roteiro e acompanhamento.' },
+        { icon: 'fa-flag-checkered', title: 'Ação final', text: text(input.behaviorChange) || 'Registre a ação e reavalie o indicador no próximo ciclo.' }
+      ]
+    };
+  }
+  return {
+    type,
+    title: type === 'chart-line' ? 'Tendência dos indicadores' : type === 'chart-funnel' ? 'Funil operacional' : type === 'chart-pie' ? 'Distribuição dos indicadores' : 'Comparativo visual dos indicadores',
+    lead: 'Gráfico visual gerado a partir dos dados informados no briefing.',
+    chart: {
+      labels,
+      unit: source.includes('%') ? '%' : '',
+      series: [{ name: text(input.kpiTarget) || 'Indicador', values }]
+    }
+  };
+}
+
 function fallbackPlan(rawInput) {
   const input = isPlainObject(rawInput) ? rawInput : {};
   const title = text(input.title) || text(input.theme) || 'Novo Treinamento';
@@ -706,6 +864,8 @@ function fallbackPlan(rawInput) {
         { icon: 'fa-triangle-exclamation', title: 'Dor operacional', text: operationalPain },
         { icon: 'fa-user-check', title: 'Comportamento esperado', text: behaviorChange }
       ] },
+      ...(shouldCreateFallbackChart(input) ? [fallbackChartSlide(input)] : []),
+      ...(fallbackVisualPatternType(input) ? [fallbackVisualPatternSlide(input)] : []),
       ...core.map((topic, index) => ({
         type: index % 3 === 0 ? 'checklist' : index % 3 === 1 ? 'cards' : 'flow',
         title: topic,
@@ -722,7 +882,8 @@ function fallbackPlan(rawInput) {
 }
 
 const planSchemaInstruction = `Responda apenas JSON valido, sem markdown. Schema:
-{"title":"string","area":"string","subtitle":"string","objective":"string","operationType":"string","kpiTarget":"string","operationalPain":"string","behaviorChange":"string","learningEvidence":"string","slides":[{"type":"cover|cards|checklist|flow|table|closing","title":"string","subtitle":"string","lead":"string","items":[{"icon":"fa-name","title":"string","text":"string"}],"rows":[["col1","col2"]]}]}`;
+{"title":"string","area":"string","subtitle":"string","objective":"string","operationType":"string","kpiTarget":"string","operationalPain":"string","behaviorChange":"string","learningEvidence":"string","slides":[{"type":"cover|cards|checklist|flow|table|chart-bar|chart-line|chart-pie|chart-funnel|decision-tree|metric-donut|kpi-row|infographic-timeline|radial-steps|process-map|icon-columns|pricing-table|objective-board|performance-summary|closing","title":"string","subtitle":"string","lead":"string","items":[{"icon":"fa-name","title":"string","text":"string"}],"rows":[["col1","col2"]],"chart":{"labels":["string"],"unit":"string","series":[{"name":"string","values":[1,2,3],"color":"#F0C55A"}]}}]}.
+Use chart-bar para barras/colunas, chart-line para linha/tendencia temporal, chart-pie para pizza/participacao, chart-funnel para funil por etapa e decision-tree para arvore de decisao. Para graficos visuais, preencha chart.labels e chart.series com numeros reais; nao simule graficos apenas com tabela. Use metric-donut ou kpi-row para resultados em numeros/KPIs, infographic-timeline para cronologia, radial-steps para etapas circulares, process-map para fluxo visual, icon-columns para quem somos/produtos/servicos, pricing-table para planos/precos e objective-board para objetivos/metas.`;
 
 /**
  * Unico ponto de saida para a LLM: valida o host, aplica timeout e nao propaga o
@@ -1053,7 +1214,59 @@ Nao gere HTML. Nao invente dados especificos quando faltar contexto; faca pergun
   }
 }
 
-const slideTypes = ['cover', 'cards', 'checklist', 'flow', 'table', 'closing'];
+const chartColors = ['#F0C55A', '#5E88C1', '#74FF9F', '#FF8A5C', '#BFA7FF', '#60D6C8'];
+const visualPatternTypes = ['metric-donut', 'kpi-row', 'infographic-timeline', 'radial-steps', 'process-map', 'icon-columns', 'pricing-table', 'objective-board', 'performance-summary'];
+const slideTypes = ['cover', 'cards', 'checklist', 'flow', 'table', 'chart-bar', 'chart-line', 'chart-pie', 'chart-funnel', 'decision-tree', ...visualPatternTypes, 'closing'];
+
+function numberValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const parsed = Number(String(value ?? '').replace(',', '.').replace(/[^\d.-]/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function safeColor(value, index = 0) {
+  const color = text(value);
+  if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+  return chartColors[index % chartColors.length];
+}
+
+function inferChartFromRows(rows) {
+  if (!Array.isArray(rows) || rows.length < 2) return { labels: [], unit: '', series: [] };
+  const body = rows.slice(1).filter((row) => Array.isArray(row) && row.length >= 2);
+  const labels = body.map((row) => text(row[0])).filter(Boolean).slice(0, 8);
+  const values = body.map((row) => numberValue(row[1])).slice(0, labels.length);
+  return labels.length ? { labels, unit: '', series: [{ name: text(rows[0]?.[1]) || 'Valor', values }] } : { labels: [], unit: '', series: [] };
+}
+
+function normalizeChart(rawChart, rows = []) {
+  const source = isPlainObject(rawChart) ? rawChart : inferChartFromRows(rows);
+  const labels = (Array.isArray(source.labels) ? source.labels : [])
+    .map((label) => text(label))
+    .filter(Boolean)
+    .slice(0, 10);
+  const rawSeries = Array.isArray(source.series) ? source.series : [];
+  const series = rawSeries.slice(0, 4).map((entry, index) => {
+    const item = isPlainObject(entry) ? entry : {};
+    const values = (Array.isArray(item.values) ? item.values : []).slice(0, labels.length || 10).map(numberValue);
+    return {
+      name: text(item.name) || `Série ${index + 1}`,
+      color: safeColor(item.color, index),
+      values
+    };
+  }).filter((entry) => entry.values.length);
+  if (!series.length) {
+    return {
+      labels: ['Atual', 'Meta', 'Esperado'],
+      unit: '',
+      series: [{ name: 'Valor', color: chartColors[0], values: [82, 90, 88] }]
+    };
+  }
+  return {
+    labels: labels.length ? labels : series[0]?.values.map((_, index) => `Item ${index + 1}`) || [],
+    unit: text(source.unit),
+    series
+  };
+}
 
 /**
  * Normaliza um slide vindo da LLM ou do cliente. Cada elemento e validado, nao
@@ -1077,7 +1290,8 @@ function normalizeSlide(slide) {
     }),
     rows: (Array.isArray(source.rows) ? source.rows : [])
       .slice(0, 8)
-      .map((row) => (Array.isArray(row) ? row : [row]).slice(0, 8).map((cell) => text(cell)))
+      .map((row) => (Array.isArray(row) ? row : [row]).slice(0, 8).map((cell) => text(cell))),
+    chart: normalizeChart(source.chart, source.rows)
   };
 }
 
@@ -1101,7 +1315,8 @@ function normalizePlan(plan) {
   const closing = normalized.at(-1)?.type === 'closing'
     ? normalized.pop()
     : emptySlide('closing', 'Encerramento', 'Obrigado pela participação.');
-  const slides = [...normalized.slice(0, maxSlides - 1), closing];
+  const bodySlides = normalized.filter((slide) => slide.type !== 'closing');
+  const slides = [...bodySlides.slice(0, maxSlides - 1), closing];
   return {
     title,
     area,
@@ -1122,6 +1337,20 @@ function menuIcon(type) {
     cards: 'fa-layer-group',
     checklist: 'fa-list-check',
     flow: 'fa-diagram-project',
+    'chart-bar': 'fa-chart-column',
+    'chart-line': 'fa-chart-line',
+    'chart-pie': 'fa-chart-pie',
+    'chart-funnel': 'fa-filter',
+    'decision-tree': 'fa-code-branch',
+    'metric-donut': 'fa-chart-pie',
+    'kpi-row': 'fa-gauge-high',
+    'infographic-timeline': 'fa-timeline',
+    'radial-steps': 'fa-circle-nodes',
+    'process-map': 'fa-diagram-project',
+    'icon-columns': 'fa-icons',
+    'pricing-table': 'fa-tags',
+    'objective-board': 'fa-bullseye',
+    'performance-summary': 'fa-chart-simple',
     table: 'fa-table',
     closing: 'fa-award'
   }[type] || 'fa-circle';
@@ -1149,6 +1378,253 @@ function coverTitleHtml(title) {
 function slideNotesAttr(slide) {
   const notes = text(slide.lead || slide.subtitle || slide.title);
   return notes ? ` data-notes="${esc(notes)}"` : '';
+}
+
+function chartMax(chart) {
+  const values = chart.series.flatMap((serie) => serie.values).map(Math.abs);
+  return Math.max(1, ...values);
+}
+
+function chartUnit(chart) {
+  return chart.unit ? ` ${esc(chart.unit)}` : '';
+}
+
+function renderChartLegend(chart) {
+  return `<div class="chart-legend">${chart.series.map((serie) => `<span><i style="background:${esc(serie.color)}"></i>${esc(serie.name)}</span>`).join('')}</div>`;
+}
+
+function renderBarChart(slide) {
+  const chart = slide.chart;
+  const labels = chart.labels.slice(0, 8);
+  return `<div class="chart-panel chart-bars" role="img" aria-label="${esc(slide.title)}">
+${renderChartLegend(chart)}
+<div class="bar-groups">${labels.map((label, labelIndex) => `<div class="bar-group"><div class="bars">${chart.series.map((serie) => {
+    const value = Number(serie.values[labelIndex] || 0);
+    const groupMax = Math.max(1, ...chart.series.map((item) => Math.abs(Number(item.values[labelIndex] || 0))));
+    const height = Math.max(5, Math.round((Math.abs(value) / groupMax) * 100));
+    return `<div class="bar-wrap"><div class="bar-value">${esc(value)}${chartUnit(chart)}</div><div class="bar" style="height:${height}%;background:${esc(serie.color)}"></div></div>`;
+  }).join('')}</div><div class="bar-label">${esc(label)}</div></div>`).join('')}</div>
+</div>`;
+}
+
+function renderLineChart(slide) {
+  const chart = slide.chart;
+  const labels = chart.labels.slice(0, 10);
+  const values = chart.series.flatMap((serie) => serie.values.slice(0, labels.length)).map(Number).filter(Number.isFinite);
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const padding = Math.max(1, (maxValue - minValue) * 0.15);
+  const min = Number.isFinite(minValue) ? Math.max(0, minValue - padding) : 0;
+  const max = Number.isFinite(maxValue) ? maxValue + padding : chartMax(chart);
+  const span = Math.max(1, max - min);
+  const width = 760;
+  const height = 300;
+  const left = 46;
+  const top = 24;
+  const plotWidth = width - 82;
+  const plotHeight = height - 70;
+  const step = labels.length > 1 ? plotWidth / (labels.length - 1) : plotWidth;
+  const pointsFor = (serie) => labels.map((_, index) => {
+    const x = left + index * step;
+    const y = top + plotHeight - (((Number(serie.values[index] || 0) - min) / span) * plotHeight);
+    return [Math.round(x), Math.round(y)];
+  });
+  return `<div class="chart-panel" role="img" aria-label="${esc(slide.title)}">
+${renderChartLegend(chart)}
+<svg class="line-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+<g class="grid">${[0, 1, 2, 3].map((tick) => `<line x1="${left}" y1="${top + tick * (plotHeight / 3)}" x2="${left + plotWidth}" y2="${top + tick * (plotHeight / 3)}"></line>`).join('')}</g>
+${chart.series.map((serie) => {
+    const points = pointsFor(serie);
+    return `<polyline points="${points.map(([x, y]) => `${x},${y}`).join(' ')}" fill="none" stroke="${esc(serie.color)}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></polyline>${points.map(([x, y], index) => `<circle cx="${x}" cy="${y}" r="6" fill="${esc(serie.color)}"></circle><text x="${x}" y="${Math.max(16, y - 12)}">${esc(serie.values[index])}${chartUnit(chart)}</text>`).join('')}`;
+  }).join('')}
+${labels.map((label, index) => `<text class="axis-label" x="${left + index * step}" y="${height - 18}">${esc(label)}</text>`).join('')}
+</svg>
+</div>`;
+}
+
+function piePath(cx, cy, radius, startAngle, endAngle) {
+  const start = {
+    x: cx + radius * Math.cos(startAngle),
+    y: cy + radius * Math.sin(startAngle)
+  };
+  const end = {
+    x: cx + radius * Math.cos(endAngle),
+    y: cy + radius * Math.sin(endAngle)
+  };
+  const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
+  return `M ${cx} ${cy} L ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${radius} ${radius} 0 ${largeArc} 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)} Z`;
+}
+
+function renderPieChart(slide) {
+  const chart = slide.chart;
+  const serie = chart.series[0] || { values: [], color: chartColors[0], name: 'Valor' };
+  const values = serie.values.slice(0, chart.labels.length);
+  const total = values.reduce((sum, value) => sum + Math.max(0, Number(value || 0)), 0) || 1;
+  let cursor = -Math.PI / 2;
+  return `<div class="chart-panel pie-layout" role="img" aria-label="${esc(slide.title)}">
+<svg class="pie-chart" viewBox="0 0 320 320">${values.map((value, index) => {
+    const slice = (Math.max(0, value) / total) * Math.PI * 2;
+    const path = piePath(160, 160, 130, cursor, cursor + slice);
+    cursor += slice;
+    return `<path d="${path}" fill="${safeColor('', index)}"></path>`;
+  }).join('')}<circle cx="160" cy="160" r="72" class="pie-hole"></circle><text x="160" y="156" class="pie-total">${esc(total)}</text><text x="160" y="184" class="pie-sub">total</text></svg>
+<div class="pie-list">${chart.labels.map((label, index) => {
+    const value = values[index] || 0;
+    const percent = Math.round((Math.max(0, value) / total) * 100);
+    return `<div><span><i style="background:${safeColor('', index)}"></i>${esc(label)}</span><b>${esc(value)}${chartUnit(chart)} · ${percent}%</b></div>`;
+  }).join('')}</div>
+</div>`;
+}
+
+function renderFunnelChart(slide) {
+  const chart = slide.chart;
+  const serie = chart.series[0] || { values: [] };
+  const values = serie.values.slice(0, chart.labels.length);
+  const max = Math.max(1, ...values.map((value) => Math.abs(Number(value || 0))));
+  return `<div class="chart-panel funnel-chart" role="img" aria-label="${esc(slide.title)}">
+${chart.labels.map((label, index) => {
+    const value = Number(values[index] || 0);
+    const width = Math.max(28, Math.round((Math.abs(value) / max) * 100));
+    return `<div class="funnel-step" style="width:${width}%;background:${safeColor('', index)}"><span>${esc(label)}</span><b>${esc(value)}${chartUnit(chart)}</b></div>`;
+  }).join('')}
+</div>`;
+}
+
+function renderDecisionTree(slide) {
+  const items = slide.items.length ? slide.items : [
+    { title: 'Condição', text: 'O indicador está fora da meta?' },
+    { title: 'Ação A', text: 'Investigar causa e acionar correção.' },
+    { title: 'Ação B', text: 'Manter monitoramento e registrar evidência.' }
+  ];
+  const [root, ...branches] = items;
+  return `<div class="decision-tree" role="img" aria-label="${esc(slide.title)}">
+<div class="tree-node root"><i class="fas ${esc(root.icon || 'fa-question')}"></i><h3>${esc(root.title)}</h3><p>${esc(root.text)}</p></div>
+<div class="tree-branches">${branches.slice(0, 4).map((item, index) => `<div class="tree-branch"><div class="tree-line"></div><div class="tree-node"><i class="fas ${esc(item.icon || (index % 2 ? 'fa-arrow-right' : 'fa-check'))}"></i><h3>${esc(item.title)}</h3><p>${esc(item.text)}</p></div></div>`).join('')}</div>
+</div>`;
+}
+
+function renderVisualChart(slide) {
+  if (slide.type === 'chart-line') return renderLineChart(slide);
+  if (slide.type === 'chart-pie') return renderPieChart(slide);
+  if (slide.type === 'chart-funnel') return renderFunnelChart(slide);
+  if (slide.type === 'decision-tree') return renderDecisionTree(slide);
+  return renderBarChart(slide);
+}
+
+function itemPercent(item, fallback = 75) {
+  const match = `${item.title || ''} ${item.text || ''}`.match(/(\d+(?:[,.]\d+)?)\s*%/);
+  const value = match ? Number(match[1].replace(',', '.')) : fallback;
+  return Math.max(0, Math.min(100, Number.isFinite(value) ? value : fallback));
+}
+
+function firstMetricText(item) {
+  const match = `${item.title || ''} ${item.text || ''}`.match(/(?:R\$\s*)?\d+(?:[,.]\d+)?\s*%?|R\$\s*\d+(?:[,.]\d+)?/i);
+  return match ? match[0] : item.title;
+}
+
+function visualItems(slide, fallback = []) {
+  return slide.items.length ? slide.items : fallback;
+}
+
+function splitFeatureText(value) {
+  return text(value).split(/[;\n]+/).map((item) => item.trim()).filter(Boolean);
+}
+
+function renderMetricDonut(slide) {
+  const items = visualItems(slide, [
+    { icon: 'fa-face-smile', title: 'Satisfação', text: '67%' },
+    { icon: 'fa-arrow-trend-up', title: 'Performance', text: '90%' },
+    { icon: 'fa-user-check', title: 'Retenção', text: '19%' }
+  ]).slice(0, 4);
+  return `<div class="metric-donut-grid">${items.map((item, index) => {
+    const value = itemPercent(item, [67, 90, 19, 75][index] || 75);
+    return `<div class="metric-donut-card"><div class="metric-donut-ring" style="--value:${value};--ring:${safeColor('', index)}"><div><strong>${esc(firstMetricText(item))}</strong><span>${esc(item.title)}</span></div></div><p>${esc(item.text)}</p></div>`;
+  }).join('')}</div>`;
+}
+
+function renderKpiRow(slide) {
+  const items = visualItems(slide, [
+    { icon: 'fa-building-user', title: 'Avaliações realizadas', text: '105' },
+    { icon: 'fa-gauge-high', title: 'Excelente', text: '32%' },
+    { icon: 'fa-chart-column', title: 'Satisfatório', text: '48%' }
+  ]).slice(0, 4);
+  return `<div class="kpi-row-visual">${items.map((item, index) => `<div class="kpi-tile"><i class="fas ${esc(item.icon || 'fa-chart-line')}"></i><div><strong>${esc(firstMetricText(item))}</strong><span>${esc(item.title)}</span><p>${esc(item.text)}</p></div><b style="background:${safeColor('', index)}"></b></div>`).join('')}</div>`;
+}
+
+function renderTimelinePattern(slide) {
+  const items = visualItems(slide, [
+    { icon: 'fa-1', title: 'Diagnóstico', text: 'Mapear cenário.' },
+    { icon: 'fa-2', title: 'Execução', text: 'Aplicar rotina.' },
+    { icon: 'fa-3', title: 'Medição', text: 'Validar resultado.' }
+  ]).slice(0, 6);
+  return `<div class="infographic-timeline">${items.map((item, index) => `<div class="timeline-point"><div class="timeline-dot"><i class="fas ${esc(item.icon || 'fa-circle')}"></i></div><div class="timeline-year">${String(index + 1).padStart(2, '0')}</div><h3>${esc(item.title)}</h3><p>${esc(item.text)}</p></div>`).join('')}</div>`;
+}
+
+function renderRadialSteps(slide) {
+  const items = visualItems(slide, [
+    { icon: 'fa-magnifying-glass-chart', title: 'Ler', text: 'Entender o indicador.' },
+    { icon: 'fa-comments', title: 'Orientar', text: 'Direcionar a execução.' },
+    { icon: 'fa-list-check', title: 'Medir', text: 'Acompanhar evidência.' },
+    { icon: 'fa-arrow-trend-up', title: 'Ajustar', text: 'Corrigir a rota.' }
+  ]).slice(0, 6);
+  return `<div class="radial-steps"><div class="radial-center"><strong>${esc(String(items.length).padStart(2, '0'))}</strong><span>etapas</span></div><div class="radial-list">${items.map((item, index) => `<div class="radial-card"><i class="fas ${esc(item.icon || 'fa-circle-check')}" style="color:${safeColor('', index)}"></i><div><h3>${esc(item.title)}</h3><p>${esc(item.text)}</p></div></div>`).join('')}</div></div>`;
+}
+
+function renderProcessMap(slide) {
+  const items = visualItems(slide, [
+    { icon: 'fa-clipboard-list', title: 'Entrada', text: 'Receber demanda.' },
+    { icon: 'fa-gears', title: 'Processo', text: 'Executar regra.' },
+    { icon: 'fa-flag-checkered', title: 'Saída', text: 'Registrar evidência.' }
+  ]).slice(0, 5);
+  return `<div class="process-map-visual">${items.map((item, index) => `<div class="process-node"><div class="process-icon"><i class="fas ${esc(item.icon || 'fa-circle-check')}"></i></div><h3>${esc(item.title)}</h3><p>${esc(item.text)}</p></div>${index < items.length - 1 ? '<div class="process-arrow"><i class="fas fa-arrow-right"></i></div>' : ''}`).join('')}</div>`;
+}
+
+function renderIconColumns(slide) {
+  const items = visualItems(slide, [
+    { icon: 'fa-bullseye', title: 'Missão', text: 'Entregar soluções eficientes.' },
+    { icon: 'fa-eye', title: 'Visão', text: 'Ser referência operacional.' },
+    { icon: 'fa-gem', title: 'Valores', text: 'Ética, inovação e foco no cliente.' }
+  ]).slice(0, 4);
+  return `<div class="icon-columns-visual">${items.map((item) => `<div class="icon-column"><i class="fas ${esc(item.icon || 'fa-circle-check')}"></i><h3>${esc(item.title)}</h3><p>${esc(item.text)}</p></div>`).join('')}</div>`;
+}
+
+function renderPricingTable(slide) {
+  const items = visualItems(slide, [
+    { title: 'Plano Básico', text: 'R$ 500,00; Consultoria inicial; Relatório de resultados' },
+    { title: 'Plano Médio', text: 'R$ 700,00; Planejamento estratégico; Suporte por e-mail' },
+    { title: 'Plano Premium', text: 'R$ 900,00; Relatórios avançados; Suporte prioritário' }
+  ]).slice(0, 4);
+  return `<div class="pricing-grid">${items.map((item, index) => {
+    const features = splitFeatureText(item.text);
+    const price = features.shift() || firstMetricText(item);
+    return `<div class="pricing-card"><div class="pricing-head" style="background:${safeColor('', index)}">${esc(item.title)}</div><strong>${esc(price)}</strong><ul>${features.map((feature) => `<li><i class="fas fa-circle-check"></i>${esc(feature)}</li>`).join('')}</ul></div>`;
+  }).join('')}</div>`;
+}
+
+function renderObjectiveBoard(slide) {
+  const items = visualItems(slide, [
+    { title: 'Expandir presença no mercado', text: '' },
+    { title: 'Aumentar satisfação dos clientes', text: '' },
+    { title: 'Otimizar processos', text: '' }
+  ]).slice(0, 5);
+  return `<div class="objective-board"><div class="objective-target"><i class="fas fa-bullseye"></i></div><div class="objective-list">${items.map((item) => `<div class="objective-item"><i class="fas ${esc(item.icon || 'fa-circle-check')}"></i><span>${esc(item.title)}${item.text ? `<small>${esc(item.text)}</small>` : ''}</span></div>`).join('')}</div></div>`;
+}
+
+function renderPerformanceSummary(slide) {
+  return `<div class="performance-summary">${renderKpiRow(slide)}${renderMetricDonut(slide)}</div>`;
+}
+
+function renderVisualPattern(slide) {
+  if (slide.type === 'metric-donut') return renderMetricDonut(slide);
+  if (slide.type === 'kpi-row') return renderKpiRow(slide);
+  if (slide.type === 'infographic-timeline') return renderTimelinePattern(slide);
+  if (slide.type === 'radial-steps') return renderRadialSteps(slide);
+  if (slide.type === 'process-map') return renderProcessMap(slide);
+  if (slide.type === 'icon-columns') return renderIconColumns(slide);
+  if (slide.type === 'pricing-table') return renderPricingTable(slide);
+  if (slide.type === 'objective-board') return renderObjectiveBoard(slide);
+  if (slide.type === 'performance-summary') return renderPerformanceSummary(slide);
+  return renderKpiRow(slide);
 }
 
 function renderSlide(slide, index) {
@@ -1183,6 +1659,22 @@ ${slide.lead ? `<p class="lead">${esc(slide.lead)}</p>` : ''}
 <div class="badge"><i class="fas ${menuIcon(slide.type)}"></i> Referência</div>
 <h2>${esc(slide.title)}</h2>
 <table class="simple-table"><tbody>${slide.rows.map((row) => `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+</section>`;
+  }
+  if (slide.type.startsWith('chart-') || slide.type === 'decision-tree') {
+    return `<section class="slide"${slideNotesAttr(slide)}>
+<div class="badge"><i class="fas ${menuIcon(slide.type)}"></i> Visual</div>
+<h2>${esc(slide.title)}</h2>
+${slide.lead ? `<p class="lead">${esc(slide.lead)}</p>` : ''}
+${renderVisualChart(slide)}
+</section>`;
+  }
+  if (visualPatternTypes.includes(slide.type)) {
+    return `<section class="slide"${slideNotesAttr(slide)}>
+<div class="badge"><i class="fas ${menuIcon(slide.type)}"></i> Infográfico</div>
+<h2>${esc(slide.title)}</h2>
+${slide.lead ? `<p class="lead">${esc(slide.lead)}</p>` : ''}
+${renderVisualPattern(slide)}
 </section>`;
   }
   if (slide.type === 'closing') {
@@ -1258,10 +1750,13 @@ body.light-mode .theme-toggle{border-color:rgba(184,138,34,.35);}
 body.light-mode .theme-toggle i{color:#B88A22;}
 .theme-toggle{width:38px;min-width:38px;padding:0;aspect-ratio:1;border-radius:12px;}
 .theme-toggle i{color:var(--accent);}
+.chart-panel{width:min(980px,100%);margin-top:8px;padding:24px;border-radius:18px;background:var(--card);border:1px solid var(--border);box-shadow:0 22px 70px rgba(0,0,0,.2)}.chart-legend{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px}.chart-legend span{display:inline-flex;align-items:center;gap:8px;color:#C4D7F3;font-size:13px;font-weight:700}.chart-legend i,.pie-list i{display:inline-block;width:12px;height:12px;border-radius:999px}.bar-groups{height:360px;display:grid;grid-template-columns:repeat(auto-fit,minmax(86px,1fr));gap:18px;align-items:end}.bar-group{height:100%;display:grid;grid-template-rows:1fr auto;gap:10px}.bars{height:100%;display:flex;align-items:end;justify-content:center;gap:8px;border-bottom:1px solid rgba(255,255,255,.12)}.bar-wrap{height:100%;min-width:24px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:8px}.bar{width:100%;min-height:8px;border-radius:10px 10px 4px 4px;box-shadow:0 0 24px rgba(240,197,90,.18)}.bar-value{font-family:'Orbitron',sans-serif;font-size:11px;color:#E9F2FF;white-space:nowrap}.bar-label{text-align:center;font-size:12px;line-height:1.3;color:#C4D7F3;font-weight:700}.line-chart{width:100%;height:360px}.line-chart .grid line{stroke:rgba(255,255,255,.11);stroke-width:1}.line-chart text{fill:#DCE9FF;font-size:13px;font-weight:700;text-anchor:middle}.line-chart .axis-label{fill:#C4D7F3;font-size:12px}.pie-layout{display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:28px;align-items:center}.pie-chart{width:100%;max-width:360px;margin:auto}.pie-chart path{filter:drop-shadow(0 8px 18px rgba(0,0,0,.18))}.pie-hole{fill:rgba(2,11,22,.92);stroke:rgba(255,255,255,.08)}.pie-total{font-family:'Orbitron';font-size:34px;font-weight:900;fill:#fff;text-anchor:middle}.pie-sub{font-size:13px;fill:#C4D7F3;text-anchor:middle;text-transform:uppercase}.pie-list{display:grid;gap:12px}.pie-list div{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}.pie-list span{display:flex;align-items:center;gap:10px;color:#DCE9FF;font-weight:700}.pie-list b{font-family:'Orbitron';color:var(--accent)}.funnel-chart{display:flex;flex-direction:column;align-items:center;gap:10px}.funnel-step{min-width:220px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 24px;border-radius:12px;color:#06101D;box-shadow:0 14px 34px rgba(0,0,0,.18);font-weight:800}.funnel-step span{font-size:16px}.funnel-step b{font-family:'Orbitron';font-size:20px}.decision-tree{margin-top:8px;display:grid;gap:26px;justify-items:center}.tree-branches{width:100%;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:18px}.tree-branch{display:grid;gap:10px;justify-items:center}.tree-line{width:2px;height:28px;background:linear-gradient(var(--accent),rgba(94,136,193,.65))}.tree-node{width:100%;padding:20px;border-radius:18px;background:var(--card);border:1px solid var(--border);text-align:center}.tree-node.root{max-width:520px;border-color:rgba(240,197,90,.34);box-shadow:0 20px 70px rgba(240,197,90,.08)}.tree-node i{font-size:28px;color:var(--accent);margin-bottom:12px}.tree-node h3{font-size:18px;margin-bottom:8px}.tree-node p{font-size:14px;line-height:1.5;color:#C4D7F3}
+.metric-donut-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:26px;width:min(980px,100%);margin-top:12px}.metric-donut-card{text-align:center;display:grid;gap:16px;justify-items:center}.metric-donut-ring{--value:75;--ring:var(--light);width:176px;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--ring) calc(var(--value)*1%),rgba(196,215,243,.22) 0);box-shadow:0 22px 60px rgba(0,0,0,.2);position:relative}.metric-donut-ring:before{content:'';position:absolute;inset:18px;border-radius:50%;background:#071429;border:1px solid rgba(255,255,255,.08)}.metric-donut-ring div{position:relative;z-index:1;display:grid;gap:5px}.metric-donut-ring strong{font-family:'Orbitron';font-size:34px;color:#fff}.metric-donut-ring span{text-transform:uppercase;font-size:11px;color:#C4D7F3;font-weight:800}.metric-donut-card p{max-width:210px;color:#DCE9FF;line-height:1.5}.kpi-row-visual{width:min(1020px,100%);display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;margin-top:12px}.kpi-tile{position:relative;display:grid;grid-template-columns:54px 1fr 8px;gap:16px;align-items:center;padding:20px;border-radius:16px;background:var(--card);border:1px solid var(--border);box-shadow:0 18px 50px rgba(0,0,0,.15)}.kpi-tile>i{width:54px;height:54px;border-radius:50%;display:grid;place-items:center;background:rgba(94,136,193,.18);color:var(--accent);font-size:24px}.kpi-tile strong{font-family:'Orbitron';font-size:30px;color:#fff;display:block}.kpi-tile span{display:block;color:#C4D7F3;font-weight:800}.kpi-tile p{font-size:13px;line-height:1.4;color:#C4D7F3}.kpi-tile b{width:8px;height:70%;border-radius:999px}.infographic-timeline{width:min(1040px,100%);display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;margin-top:28px;position:relative}.infographic-timeline:before{content:'';position:absolute;left:8%;right:8%;top:52px;height:3px;background:linear-gradient(90deg,var(--accent),var(--light),#FF8A5C);opacity:.7}.timeline-point{position:relative;text-align:center;padding:0 12px}.timeline-dot{width:104px;height:104px;margin:0 auto 16px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,#123C7A,#5E88C1);border:10px solid rgba(255,255,255,.14);box-shadow:0 18px 46px rgba(0,0,0,.22);position:relative;z-index:1}.timeline-dot i{font-size:26px;color:#fff}.timeline-year{font-family:'Orbitron';font-size:26px;color:rgba(196,215,243,.28);font-weight:900;margin-bottom:4px}.timeline-point h3{font-size:16px;color:#fff;margin-bottom:8px}.timeline-point p{font-size:13px;line-height:1.45;color:#C4D7F3}.radial-steps{width:min(1020px,100%);display:grid;grid-template-columns:260px 1fr;gap:30px;align-items:center;margin-top:10px}.radial-center{width:230px;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;align-content:center;background:radial-gradient(circle at center,#071429 52%,transparent 53%),conic-gradient(var(--accent) 0 24%,var(--light) 24% 58%,#FF8A5C 58% 78%,rgba(196,215,243,.5) 78%);box-shadow:0 20px 60px rgba(0,0,0,.22)}.radial-center strong{font-family:'Orbitron';font-size:48px;color:#fff}.radial-center span{text-transform:uppercase;color:#C4D7F3;font-weight:800}.radial-list{display:grid;grid-template-columns:repeat(2,minmax(180px,1fr));gap:14px}.radial-card{display:flex;gap:14px;align-items:flex-start;padding:16px;border-radius:16px;background:var(--card);border:1px solid var(--border)}.radial-card i{font-size:24px}.radial-card h3{font-size:17px;color:#fff}.radial-card p{font-size:13px;line-height:1.45;color:#C4D7F3}.process-map-visual{width:min(1040px,100%);display:flex;align-items:stretch;gap:12px;flex-wrap:wrap;margin-top:18px}.process-node{flex:1;min-width:150px;padding:20px;border-radius:16px;background:var(--card);border:1px solid var(--border);text-align:center}.process-icon{width:58px;height:58px;border-radius:16px;margin:0 auto 14px;display:grid;place-items:center;background:linear-gradient(135deg,var(--light),#173B73);color:#fff}.process-node h3{font-size:17px;color:#fff;margin-bottom:8px}.process-node p{font-size:13px;line-height:1.45;color:#C4D7F3}.process-arrow{display:grid;place-items:center;color:var(--accent);font-size:22px}.icon-columns-visual{width:min(980px,100%);display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:28px;margin-top:18px}.icon-column{text-align:center;padding:12px 24px;border-right:1px solid rgba(196,215,243,.25)}.icon-column:last-child{border-right:0}.icon-column i{font-size:68px;color:var(--light);margin-bottom:18px}.icon-column h3{font-size:22px;color:#fff;text-transform:uppercase;margin-bottom:12px}.icon-column p{font-size:17px;line-height:1.55;color:#DCE9FF}.pricing-grid{width:min(980px,100%);display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:22px;margin-top:12px}.pricing-card{overflow:hidden;border-radius:16px;background:var(--card);border:1px solid var(--border);box-shadow:0 20px 56px rgba(0,0,0,.16)}.pricing-head{padding:12px 16px;text-align:center;color:#071429;font-weight:900;text-transform:uppercase}.pricing-card strong{display:block;font-family:'Orbitron';font-size:32px;color:#fff;text-align:center;padding:20px 18px 8px}.pricing-card ul{list-style:none;display:grid;gap:10px;padding:8px 22px 24px}.pricing-card li{display:flex;gap:9px;align-items:flex-start;color:#DCE9FF;font-size:14px;line-height:1.35}.pricing-card li i{color:#74FF9F;margin-top:2px}.objective-board{width:min(1020px,100%);display:grid;grid-template-columns:340px 1fr;gap:42px;align-items:center;margin-top:8px}.objective-target{aspect-ratio:1;display:grid;place-items:center}.objective-target i{font-size:230px;color:#5E88C1;filter:drop-shadow(0 24px 48px rgba(0,0,0,.22))}.objective-list{display:grid;gap:18px}.objective-item{display:grid;grid-template-columns:52px 1fr;gap:16px;align-items:center}.objective-item i{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:#1E4A94;color:#fff;font-size:24px}.objective-item span{font-size:28px;line-height:1.18;color:#E9F2FF;font-weight:600}.objective-item small{display:block;font-size:15px;line-height:1.45;color:#C4D7F3;margin-top:5px}.performance-summary{display:grid;gap:28px}
 .slide-counter{font-family:'Orbitron',sans-serif;font-size:18px;font-weight:700;color:var(--accent);min-width:90px;text-align:right}.navigation{position:fixed;right:28px;bottom:22px;display:flex;gap:12px;z-index:150}.navigation>div{display:flex;flex-direction:column;align-items:center}.nav-btn{width:44px;height:44px;border-radius:50%;border:1px solid rgba(240,197,90,.28);background:rgba(0,0,0,.35);backdrop-filter:blur(12px);color:white;font-size:15px;cursor:pointer;transition:.3s}.nav-btn:hover{background:rgba(240,197,90,.18);transform:scale(1.08)}.nav-label{text-align:center;font-size:11px;margin-top:6px;color:#D0DDF2}.menu-toggle{display:none;width:42px;height:42px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:white;font-size:17px;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;transition:.3s}.menu-toggle:hover{background:rgba(240,197,90,.12);border-color:rgba(240,197,90,.2)}.modal-overlay{position:fixed;inset:0;z-index:300;background:rgba(2,8,18,.72);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;padding:24px}.modal-overlay.show{display:flex}.modal{position:relative;width:min(560px,92vw);background:linear-gradient(135deg,rgba(10,22,42,.98),rgba(4,14,28,.98));border:1px solid var(--border);border-radius:24px;padding:32px;box-shadow:0 30px 80px rgba(0,0,0,.6)}.modal h3{color:var(--accent);margin-bottom:20px;display:flex;align-items:center;gap:12px;font-size:20px}.modal-close{position:absolute;top:20px;right:24px;width:38px;height:38px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.04);color:#fff;font-size:16px;cursor:pointer;transition:.3s}.modal-close:hover{background:rgba(240,197,90,.12);border-color:rgba(240,197,90,.25)}.kbd-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.06)}.kbd-row:last-child{border-bottom:none}.kbd-row>span{font-size:15px;color:rgba(255,255,255,.85)}.kbd{display:inline-flex;gap:6px}.kbd b{font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--accent);min-width:34px;text-align:center}.instructor-panel{position:fixed;left:260px;right:0;bottom:0;z-index:80;background:linear-gradient(to top,rgba(2,10,20,.99),rgba(2,10,20,.95));border-top:1px solid rgba(240,197,90,.28);padding:18px 28px;display:none;grid-template-columns:1fr 300px;gap:24px;align-items:center;max-height:38vh}.instructor-panel{transition:left .28s ease}body.sidebar-collapsed .instructor-panel{left:84px}body.instructor .instructor-panel{display:grid}body.instructor .slide{padding-bottom:calc(38vh + 20px)}.ip-notes h4{font-family:'Orbitron',sans-serif;font-size:12px;letter-spacing:1px;color:var(--accent);margin-bottom:8px;text-transform:uppercase;display:flex;align-items:center;gap:8px}.ip-title{font-size:17px;font-weight:700;margin-bottom:6px}.ip-side{display:flex;flex-direction:column;gap:12px;border-left:1px solid rgba(255,255,255,.12);padding-left:20px}.ip-side .ip-lab{font-size:11px;color:#7F9BC0;letter-spacing:1px}.ip-timer{font-family:'Orbitron',sans-serif;font-size:30px;font-weight:800;color:var(--accent);line-height:1}.ip-nav{font-size:13px;color:rgba(255,255,255,.6)}.ip-nav b{color:#fff;font-weight:600}.ip-notes-edit{width:100%;min-height:64px;max-height:22vh;resize:vertical;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;padding:10px 12px;color:#fff;font-family:'Montserrat',sans-serif;font-size:14px;line-height:1.5}.ip-notes-edit:focus{outline:none;border-color:rgba(240,197,90,.4)}.ip-saved{font-size:11px;color:#74FF9F;margin-top:4px;height:14px}
 body.light-mode .modal{background:linear-gradient(135deg,rgba(255,255,255,.98),rgba(239,245,252,.98));border-color:rgba(0,52,103,.16);box-shadow:0 30px 80px rgba(0,52,103,.18)}body.light-mode .modal h3{color:#8A640C}body.light-mode .kbd-row{border-color:rgba(0,52,103,.12)}body.light-mode .kbd-row>span,body.light-mode .ip-nav,body.light-mode .ip-nav b{color:#244567}body.light-mode .kbd b{background:rgba(0,52,103,.06);border-color:rgba(0,52,103,.16);color:#8A640C}body.light-mode .instructor-panel{background:linear-gradient(to top,rgba(244,247,251,.99),rgba(239,245,252,.95));border-color:rgba(0,52,103,.2)}body.light-mode .ip-notes-edit{background:rgba(255,255,255,.86);border-color:rgba(0,52,103,.18);color:#102033}body.light-mode .ip-side{border-color:rgba(0,52,103,.12)}
+body.light-mode .chart-panel,body.light-mode .tree-node,body.light-mode .kpi-tile,body.light-mode .radial-card,body.light-mode .process-node,body.light-mode .pricing-card{background:rgba(255,255,255,.82);border-color:rgba(0,52,103,.16);box-shadow:0 18px 55px rgba(0,52,103,.08)}body.light-mode .chart-legend span,body.light-mode .bar-label,body.light-mode .tree-node p,body.light-mode .kpi-tile span,body.light-mode .kpi-tile p,body.light-mode .timeline-point p,body.light-mode .radial-card p,body.light-mode .process-node p,body.light-mode .pricing-card li,body.light-mode .objective-item small{color:#37506F!important}body.light-mode .bar-value,body.light-mode .pie-list span,body.light-mode .line-chart text{color:#102033;fill:#102033}body.light-mode .line-chart .grid line{stroke:rgba(0,52,103,.14)}body.light-mode .line-chart .axis-label,body.light-mode .pie-sub{fill:#37506F}body.light-mode .pie-hole{fill:#F4F7FB;stroke:rgba(0,52,103,.12)}body.light-mode .pie-total{fill:#102033}body.light-mode .pie-list div{background:rgba(0,52,103,.05);border-color:rgba(0,52,103,.12)}body.light-mode .metric-donut-ring:before{background:#F4F7FB;border-color:rgba(0,52,103,.12)}body.light-mode .metric-donut-ring strong,body.light-mode .kpi-tile strong,body.light-mode .timeline-point h3,body.light-mode .radial-card h3,body.light-mode .process-node h3,body.light-mode .icon-column h3,body.light-mode .pricing-card strong,body.light-mode .objective-item span{color:#102033!important}body.light-mode .metric-donut-ring span,body.light-mode .metric-donut-card p,body.light-mode .icon-column p{color:#37506F!important}body.light-mode .infographic-timeline:before{opacity:.9}body.light-mode .timeline-year{color:rgba(0,52,103,.18)}body.light-mode .icon-column{border-color:rgba(0,52,103,.16)}body.light-mode .objective-target i{color:#1E4A94}
 @media(max-width:1200px){.top-actions{gap:6px}.action-btn{padding:8px 10px}.btn-label{display:none}.slide-counter{min-width:72px;font-size:15px}}
-@media(max-width:980px){.menu-toggle{display:flex}.instructor-panel{left:0;grid-template-columns:1fr;max-height:52vh;overflow-y:auto}body.sidebar-collapsed .instructor-panel{left:0}body.instructor .slide{padding-bottom:calc(52vh + 20px)}}
+@media(max-width:980px){.menu-toggle{display:flex}.instructor-panel{left:0;grid-template-columns:1fr;max-height:52vh;overflow-y:auto}body.sidebar-collapsed .instructor-panel{left:0}body.instructor .slide{padding-bottom:calc(52vh + 20px)}.pie-layout{grid-template-columns:1fr}.bar-groups{height:300px}.line-chart{height:300px}.radial-steps,.objective-board{grid-template-columns:1fr}.radial-center{width:190px;margin:auto}.radial-list{grid-template-columns:1fr}.objective-target i{font-size:160px}.objective-item span{font-size:22px}.icon-column{border-right:0;border-bottom:1px solid rgba(196,215,243,.18)}.icon-column:last-child{border-bottom:0}.process-arrow{display:none}}
 @media(max-width:640px){.navigation{right:14px;bottom:14px;gap:8px}.nav-btn{width:48px;height:48px;font-size:15px}.slide-counter{display:none}}
 </style>
 </head>

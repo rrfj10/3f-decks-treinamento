@@ -84,6 +84,94 @@ test('renderDeck preserva controles do template mestre', () => {
   assert.match(html, /data-notes="Notas do instrutor"/);
 });
 
+test('renderDeck gera graficos visuais nativos', () => {
+  const html = renderDeck(normalizePlan({
+    title: 'Graficos',
+    slides: [
+      {
+        type: 'chart-bar',
+        title: 'Barras',
+        chart: { labels: ['TMA', 'SLA'], unit: '%', series: [{ name: 'Atual', values: [8.5, 82] }, { name: 'Meta', values: [6, 90] }] }
+      },
+      {
+        type: 'chart-line',
+        title: 'Linha',
+        chart: { labels: ['S1', 'S2', 'S3'], unit: '%', series: [{ name: 'SLA', values: [80, 84, 88] }] }
+      },
+      {
+        type: 'chart-pie',
+        title: 'Pizza',
+        chart: { labels: ['A', 'B'], series: [{ name: 'Share', values: [60, 40] }] }
+      },
+      {
+        type: 'chart-funnel',
+        title: 'Funil',
+        chart: { labels: ['Entradas', 'Tratadas'], series: [{ name: 'Volume', values: [1000, 740] }] }
+      },
+      {
+        type: 'decision-tree',
+        title: 'Arvore',
+        items: [{ title: 'Fora da meta?', text: 'Sim ou nao' }, { title: 'Acionar', text: 'Plano de acao' }]
+      }
+    ]
+  }));
+  assert.match(html, /chart-panel chart-bars/);
+  assert.match(html, /class="line-chart"/);
+  assert.match(html, /class="pie-chart"/);
+  assert.match(html, /class="chart-panel funnel-chart"/);
+  assert.match(html, /class="decision-tree"/);
+  assert.equal(html.includes('Gráfico de barras (simulado)'), false);
+});
+
+test('fallbackPlan cria slide visual quando briefing pede grafico', () => {
+  const plan = fallbackPlan({
+    title: 'Grafico de SLA',
+    audience: 'supervisores',
+    objective: 'interpretar linha de tendencia',
+    duration: '15 minutos',
+    description: 'linha de tendencia semanal: semana 1 80%, semana 2 84%, semana 3 88%'
+  });
+  assert.equal(plan.slides.some((slide) => slide.type === 'chart-line'), true);
+  assert.doesNotThrow(() => renderDeck(plan));
+});
+
+test('renderDeck gera padroes visuais de infografico', () => {
+  const html = renderDeck(normalizePlan({
+    title: 'Infograficos',
+    slides: [
+      { type: 'metric-donut', title: 'Resultados', items: [{ title: 'Satisfacao', text: '67%' }] },
+      { type: 'kpi-row', title: 'KPIs', items: [{ icon: 'fa-gauge-high', title: 'Avaliacoes', text: '105' }] },
+      { type: 'infographic-timeline', title: 'Timeline', items: [{ title: 'Inicio', text: 'Diagnostico' }, { title: 'Fim', text: 'Medicao' }] },
+      { type: 'radial-steps', title: 'Etapas', items: [{ title: 'Ler', text: 'Indicador' }, { title: 'Agir', text: 'Plano' }] },
+      { type: 'process-map', title: 'Processo', items: [{ title: 'Entrada', text: 'Demanda' }, { title: 'Saida', text: 'Evidencia' }] },
+      { type: 'icon-columns', title: 'Quem somos', items: [{ icon: 'fa-bullseye', title: 'Missao', text: 'Entregar valor' }] },
+      { type: 'pricing-table', title: 'Planos', items: [{ title: 'Plano Basico', text: 'R$ 500,00; Relatorio; Suporte' }] },
+      { type: 'objective-board', title: 'Objetivos', items: [{ title: 'Expandir presenca', text: 'No mercado' }] },
+      { type: 'performance-summary', title: 'Desempenho', items: [{ title: 'Performance', text: '90%' }] }
+    ]
+  }));
+  assert.match(html, /class="metric-donut-grid"/);
+  assert.match(html, /class="kpi-row-visual"/);
+  assert.match(html, /class="infographic-timeline"/);
+  assert.match(html, /class="radial-steps"/);
+  assert.match(html, /class="process-map-visual"/);
+  assert.match(html, /class="icon-columns-visual"/);
+  assert.match(html, /class="pricing-grid"/);
+  assert.match(html, /class="objective-board"/);
+  assert.match(html, /class="performance-summary"/);
+});
+
+test('fallbackPlan cria padrao visual quando briefing pede infografico', () => {
+  const plan = fallbackPlan({
+    title: 'Resultados em numeros',
+    audience: 'lideranca',
+    objective: 'mostrar um dashboard visual com numeros e objetivos',
+    description: 'quero um infografico premium com resultados em numeros e metas'
+  });
+  assert.equal(plan.slides.some((slide) => ['metric-donut', 'kpi-row', 'objective-board', 'performance-summary'].includes(slide.type)), true);
+  assert.doesNotThrow(() => renderDeck(plan));
+});
+
 test('esc cobre aspas simples', () => {
   assert.equal(esc(`<a href='x'>&"`), '&lt;a href=&#39;x&#39;&gt;&amp;&quot;');
 });
@@ -192,6 +280,20 @@ test('normalizePlan nao adiciona encerramento duplicado quando ja existe', () =>
   const plan = normalizePlan({ title: 'T', slides });
   assert.equal(plan.slides.length, 24);
   assert.equal(plan.slides.filter((slide) => slide.type === 'closing').length, 1);
+});
+
+test('normalizePlan remove encerramento duplicado no meio do plano', () => {
+  const plan = normalizePlan({
+    title: 'T',
+    slides: [
+      { type: 'cover', title: 'Capa' },
+      { type: 'closing', title: 'Fim prematuro' },
+      { type: 'chart-bar', title: 'Grafico', chart: { labels: ['A'], series: [{ name: 'Valor', values: [1] }] } },
+      { type: 'closing', title: 'Fim correto' }
+    ]
+  });
+  assert.equal(plan.slides.filter((slide) => slide.type === 'closing').length, 1);
+  assert.equal(plan.slides.at(-1).title, 'Fim correto');
 });
 
 test('coverTitleHtml fecha o span com varios hifens no titulo', () => {
