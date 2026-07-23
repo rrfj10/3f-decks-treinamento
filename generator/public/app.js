@@ -65,6 +65,7 @@ let messages = [
 ];
 let briefing = {};
 let draftPlan = null;
+let generatedTraining = null;
 let authRequired = false;
 let generatorKey = sessionStorage.getItem('3f-generator-key') || '';
 let llmConfig = { activeSlot: 1, slots: [] };
@@ -235,6 +236,25 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;');
 }
 
+function renderResultCard({ mode, title, slides, status, url }) {
+  const updated = mode === 'updated';
+  const kicker = updated ? 'Treinamento atualizado' : 'Treinamento criado com sucesso';
+  const dateLabel = updated ? 'Revisado em' : 'Criado em';
+  return `<div class="result-card">
+<div class="result-kicker"><i class="fas ${updated ? 'fa-rotate' : 'fa-circle-check'}"></i> ${kicker}</div>
+<div class="result-title">${escapeHtml(title || 'Treinamento 3F')}</div>
+<div class="result-meta">
+<span><b>Slides</b>${escapeHtml(slides || '--')}</span>
+<span><b>${dateLabel}</b>${todayPtBr()}</span>
+<span><b>Status</b>${escapeHtml(status)}</span>
+</div>
+<div class="result-actions">
+<a class="result-action primary" href="${catalogBase}${url}" target="_blank" rel="noopener"><i class="fas fa-arrow-up-right-from-square"></i> Abrir treinamento</a>
+<a class="result-action" href="${catalogBase}" target="_blank" rel="noopener"><i class="fas fa-house"></i> Catálogo</a>
+</div>
+</div>`;
+}
+
 function nowTime() {
   const date = new Date();
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
@@ -283,6 +303,14 @@ function applyBriefing(next) {
 }
 
 function chipsForState(data, missing, hasSlides) {
+  if (generatedTraining?.file) {
+    return [
+      ['Reduzir para 8 slides', 'Reduza o treinamento para oito slides mantendo objetivo, impacto operacional, atividade e encerramento.'],
+      ['Mais prático', 'Deixe o treinamento mais prático e focado em situações reais da operação.'],
+      ['Adicionar dinâmica', 'Adicione uma dinâmica baseada em cenário de atendimento.'],
+      ['Incluir avaliação', 'Inclua uma avaliação final curta.']
+    ];
+  }
   if (!messages.some((message) => message.role === 'user')) {
     return [
       ['Organizar em slides', 'Me ajude a organizar esses tópicos em slides.'],
@@ -402,7 +430,20 @@ function renderStatus(data) {
   const percent = completeness(data);
   progressText.textContent = `Briefing ${percent}% completo`;
   briefingBar.style.width = `${percent}%`;
+
+  if (generatedTraining?.file) {
+    generateBtn.disabled = false;
+    generateBtn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i> Gerar nova versão';
+    generateBtn.title = 'Gerar uma nova versão a partir do briefing atual. Para ajustar o arquivo criado, use o chat.';
+    statusCard.style.borderColor = 'rgba(78,165,255,.34)';
+    statusTitle.style.color = 'var(--blue)';
+    statusTitle.textContent = 'Modo revisão';
+    statusBox.textContent = 'O treinamento ja foi criado. Use o chat para pedir ajustes no arquivo atual ou gere uma nova versão.';
+    return;
+  }
+
   generateBtn.disabled = missing.length > 0;
+  generateBtn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i> Gerar treinamento';
   generateBtn.title = missing.length ? `Informe ${missing.join(', ')} para continuar.` : 'Gerar treinamento no padrão 3F.';
 
   statusCard.style.borderColor = missing.length ? 'rgba(240,197,90,.32)' : 'rgba(116,255,159,.28)';
@@ -441,6 +482,47 @@ async function sendChat(text) {
   renderPreview();
 }
 
+async function reviseGeneratedTraining(text) {
+  messages.push({ role: 'user', content: text });
+  renderMessages();
+  statusBox.textContent = 'Revisando o treinamento gerado e atualizando o arquivo...';
+  resultBox.hidden = false;
+  resultBox.className = 'result loading';
+  resultBox.textContent = 'Interpretando pedido de revisão...\nAtualizando roteiro...\nReaplicando padrão visual 3F...\nSalvando treinamento...';
+  const response = await fetch('/api/revise', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({
+      instruction: text,
+      plan: draftPlan,
+      briefing: fieldBriefing(),
+      file: generatedTraining.file
+    })
+  });
+  const payload = await response.json();
+  if (response.status === 401) resetAccess();
+  if (!response.ok) throw new Error(payload.error || 'Falha ao revisar.');
+  draftPlan = payload.plan;
+  generatedTraining = {
+    file: payload.file,
+    url: payload.url,
+    plan: payload.plan
+  };
+  renderPreview();
+  const slides = payload.plan?.slides?.length || estimatedSlides(fieldBriefing()).length;
+  resultBox.className = 'result';
+  resultBox.innerHTML = renderResultCard({
+    mode: 'updated',
+    title: payload.plan.title,
+    slides: `${slides} slides`,
+    status: 'Pronto para nova revisão',
+    url: payload.url
+  });
+  messages.push({ role: 'assistant', content: payload.reply || 'Treinamento atualizado. Você pode pedir novas alterações antes de finalizar.' });
+  if (payload.warning) messages.push({ role: 'assistant', content: `Aviso: ${payload.warning}` });
+  renderMessages();
+}
+
 async function generateTraining() {
   const data = fieldBriefing();
   const missing = missingRequired(data);
@@ -451,6 +533,7 @@ async function generateTraining() {
   generateBtn.disabled = true;
   generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Gerando treinamento...';
   resultBox.hidden = false;
+  resultBox.className = 'result loading';
   resultBox.textContent = 'Organizando briefing...\nCriando roteiro...\nGerando conteúdo...\nAplicando padrão visual 3F...';
   try {
     const response = await fetch('/api/generate', {
@@ -462,16 +545,28 @@ async function generateTraining() {
     if (response.status === 401) resetAccess();
     if (!response.ok) throw new Error(payload.error || 'Falha ao gerar.');
     draftPlan = payload.plan;
+    generatedTraining = {
+      file: payload.file,
+      url: payload.url,
+      plan: payload.plan
+    };
     renderPreview();
     const slides = payload.plan?.slides?.length || estimatedSlides(data).length;
-    resultBox.innerHTML = `<strong>Treinamento criado com sucesso</strong><br>${escapeHtml(payload.plan.title)}<br>${slides} slides · criado em ${todayPtBr()} · status: pronto para revisão<br><br><a href="${catalogBase}${payload.url}" target="_blank">Abrir treinamento</a> · <a href="${catalogBase}" target="_blank">Voltar ao catálogo</a>`;
-    messages.push({ role: 'assistant', content: 'O treinamento foi criado. Você pode pedir alterações antes de finalizar.' });
+    resultBox.className = 'result';
+    resultBox.innerHTML = renderResultCard({
+      mode: 'created',
+      title: payload.plan.title,
+      slides: `${slides} slides`,
+      status: 'Pronto para revisão',
+      url: payload.url
+    });
+    messages.push({ role: 'assistant', content: 'O treinamento foi criado. Você pode pedir alterações antes de finalizar. Sugestões: deixe mais prático, adicione uma dinâmica, reduza para oito slides ou inclua uma avaliação.' });
     renderMessages();
   } catch (error) {
+    resultBox.className = 'result error';
     resultBox.textContent = `Erro: ${error.message}`;
   } finally {
-    generateBtn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i> Gerar treinamento';
-    generateBtn.disabled = missingRequired(fieldBriefing()).length > 0;
+    renderStatus(fieldBriefing());
   }
 }
 
@@ -479,8 +574,10 @@ function resetConversation() {
   messages = [{ role: 'assistant', content: 'Qual treinamento você quer criar? Me diga o tema, o público e o principal objetivo.' }];
   briefing = {};
   draftPlan = null;
+  generatedTraining = null;
   Object.values(fields).forEach((input) => { input.value = ''; });
   resultBox.hidden = true;
+  resultBox.className = 'result';
   resultBox.textContent = '';
   renderMessages();
   renderPreview();
@@ -492,7 +589,8 @@ composer.addEventListener('submit', async (event) => {
   if (!text) return;
   chatInput.value = '';
   try {
-    await sendChat(text);
+    if (generatedTraining?.file && draftPlan) await reviseGeneratedTraining(text);
+    else await sendChat(text);
   } catch (error) {
     messages.push({ role: 'assistant', content: `Erro: ${error.message}` });
     renderMessages();
@@ -510,7 +608,8 @@ thread.addEventListener('click', async (event) => {
   const chip = event.target.closest('.chip');
   if (!chip) return;
   try {
-    await sendChat(chip.dataset.prompt);
+    if (generatedTraining?.file && draftPlan) await reviseGeneratedTraining(chip.dataset.prompt);
+    else await sendChat(chip.dataset.prompt);
   } catch (error) {
     messages.push({ role: 'assistant', content: `Erro: ${error.message}` });
     renderMessages();
@@ -533,6 +632,7 @@ resetBtn.addEventListener('click', resetConversation);
 resetTopBtn.addEventListener('click', resetConversation);
 draftBtn.addEventListener('click', () => {
   resultBox.hidden = false;
+  resultBox.className = 'result loading';
   resultBox.textContent = 'Atalhos: Enter envia a mensagem. Shift + Enter quebra linha. C limpa marcações nos treinamentos gerados.';
 });
 fullscreenBtn.addEventListener('click', async () => {

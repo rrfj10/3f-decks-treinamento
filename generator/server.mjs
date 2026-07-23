@@ -422,6 +422,151 @@ async function llmPlan(input) {
   }
 }
 
+function requestedSlideCount(instruction) {
+  const text = String(instruction || '');
+  const match = text.match(/(?:reduz|reduza|deixe|ajuste|para|em)\D{0,24}(\d{1,2})\s*slides?/i)
+    || text.match(/(\d{1,2})\s*slides?/i);
+  if (!match) return 0;
+  return Math.min(24, Math.max(3, Number(match[1])));
+}
+
+function withSlideLimit(plan, target) {
+  if (!target || plan.slides.length <= target) return plan;
+  const cover = plan.slides.find((slide) => slide.type === 'cover') || plan.slides[0];
+  const closing = [...plan.slides].reverse().find((slide) => slide.type === 'closing') || plan.slides.at(-1);
+  const body = plan.slides.filter((slide) => slide !== cover && slide !== closing);
+  const priority = [
+    'Objetivos do treinamento',
+    'Impacto operacional',
+    'Contexto da operação',
+    'Indicadores impactados',
+    'Conduta ou processo esperado',
+    'Avaliação final',
+    'Atividade prática',
+    'Exemplo da operação'
+  ];
+  const ordered = [
+    ...priority.map((title) => body.find((slide) => comparableText(slide.title) === comparableText(title))).filter(Boolean),
+    ...body.filter((slide) => !priority.some((title) => comparableText(slide.title) === comparableText(title)))
+  ];
+  const middle = ordered.slice(0, Math.max(1, target - 2));
+  return normalizePlan({ ...plan, slides: [cover, ...middle, closing] });
+}
+
+function hasSlide(plan, title) {
+  return plan.slides.some((slide) => comparableText(slide.title) === comparableText(title));
+}
+
+function addRevisionSlides(plan, instruction, briefing = {}) {
+  const text = comparableText(instruction);
+  const slides = [...plan.slides];
+  const closingIndex = Math.max(0, slides.findIndex((slide) => slide.type === 'closing'));
+  const insertAt = closingIndex === -1 ? slides.length : closingIndex;
+
+  if (/(dinamica|atividade|simulacao|simulação|roleplay|pratica|prática)/i.test(instruction) && !hasSlide(plan, 'Atividade prática')) {
+    slides.splice(insertAt, 0, {
+      type: 'cards',
+      title: 'Atividade prática',
+      lead: 'Simulação rápida para transformar o conteúdo em comportamento observável.',
+      items: [
+        { icon: 'fa-headset', title: 'Cenário', text: briefing.operationalPain || 'Use uma situação real da operação.' },
+        { icon: 'fa-users', title: 'Execução', text: 'Divida o grupo em atendimento, cliente e observador.' },
+        { icon: 'fa-clipboard-check', title: 'Debriefing', text: 'Compare a condução com o comportamento esperado.' }
+      ]
+    });
+  }
+
+  if (/(avaliacao|avaliação|quiz|prova|checagem|certifica)/i.test(instruction) && !hasSlide(plan, 'Avaliação final')) {
+    slides.splice(Math.min(insertAt + 1, slides.length), 0, {
+      type: 'checklist',
+      title: 'Avaliação final',
+      lead: 'Checagem curta para confirmar entendimento antes da aplicação.',
+      items: [
+        { icon: 'fa-circle-check', title: 'Conceito', text: 'O participante explica o objetivo do treinamento.' },
+        { icon: 'fa-list-check', title: 'Aplicação', text: 'O participante escolhe a conduta correta em um cenário.' },
+        { icon: 'fa-chart-line', title: 'Indicador', text: `O participante conecta a prática ao KPI ${briefing.kpiTarget || plan.kpiTarget || 'definido'}.` }
+      ]
+    });
+  }
+
+  if (/exemplo|caso|cenario|cenário/i.test(instruction) && !hasSlide(plan, 'Exemplo da operação')) {
+    slides.splice(insertAt, 0, {
+      type: 'cards',
+      title: 'Exemplo da operação',
+      lead: 'Use um caso simples para aproximar o conteúdo da rotina.',
+      items: [
+        { icon: 'fa-triangle-exclamation', title: 'Situação', text: briefing.operationalPain || 'Cliente em atendimento com risco de desvio de processo.' },
+        { icon: 'fa-user-check', title: 'Conduta esperada', text: briefing.behaviorChange || plan.behaviorChange || 'Aplicar o processo combinado.' },
+        { icon: 'fa-chart-line', title: 'Resultado esperado', text: briefing.kpiTarget || plan.kpiTarget || 'Melhoria do indicador definido.' }
+      ]
+    });
+  }
+
+  const revised = normalizePlan({ ...plan, slides });
+  if (text.includes('pratico') || text.includes('pratica') || text.includes('operador')) {
+    revised.slides = revised.slides.map((slide) => slide.type === 'cover' ? slide : {
+      ...slide,
+      lead: slide.lead || 'Foque no que deve ser feito na rotina.',
+      items: slide.items.map((item) => ({
+        ...item,
+        text: item.text || 'Aplicar este ponto em uma situação real de atendimento.'
+      }))
+    });
+  }
+  return normalizePlan(revised);
+}
+
+function fallbackRevisePlan(plan, instruction, briefing = {}) {
+  let revised = normalizePlan(plan || fallbackPlan(briefing));
+  const text = comparableText(instruction);
+  const target = requestedSlideCount(instruction);
+
+  revised = addRevisionSlides(revised, instruction, briefing);
+  if (target) revised = withSlideLimit(revised, target);
+
+  if (text.includes('tom') || text.includes('lideranca') || text.includes('liderança') || text.includes('gestor')) {
+    revised.subtitle = revised.subtitle || 'Versão revisada para aplicação com liderança';
+    revised.slides = revised.slides.map((slide) => slide.type === 'cover' ? slide : {
+      ...slide,
+      lead: slide.lead || 'Conecte o conteúdo com orientação, acompanhamento e rotina de gestão.'
+    });
+  }
+
+  return normalizePlan(revised);
+}
+
+async function llmRevisePlan(input) {
+  const { apiKey, apiUrl, model } = await readLlmRuntimeConfig();
+  const fallback = fallbackRevisePlan(input.plan, input.instruction, input.briefing || {});
+  if (!apiKey) return { plan: fallback, mode: 'fallback', warning: 'LLM_API_KEY/OPENAI_API_KEY nao configurada.' };
+
+  const schemaInstruction = `Responda apenas JSON valido, sem markdown. Schema:
+{"title":"string","area":"string","subtitle":"string","objective":"string","operationType":"string","kpiTarget":"string","operationalPain":"string","behaviorChange":"string","learningEvidence":"string","slides":[{"type":"cover|cards|checklist|flow|table|closing","title":"string","subtitle":"string","lead":"string","items":[{"icon":"fa-name","title":"string","text":"string"}],"rows":[["col1","col2"]]}]}`;
+
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        temperature: 0.25,
+        messages: [
+          { role: 'system', content: `Voce revisa roteiros de treinamentos 3F em pt-BR. Preserve o template, mantenha uma ideia principal por slide, respeite o pedido do usuario e nao reinicie o briefing. ${schemaInstruction}` },
+          { role: 'user', content: JSON.stringify(input, null, 2) }
+        ]
+      })
+    });
+    if (!response.ok) throw new Error(`LLM HTTP ${response.status}: ${await response.text()}`);
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    const parsed = JSON.parse(content.replace(/^```json\s*|\s*```$/g, ''));
+    const revised = addRevisionSlides(normalizePlan(parsed), input.instruction, input.briefing || {});
+    return { plan: withSlideLimit(revised, requestedSlideCount(input.instruction)), mode: 'llm' };
+  } catch (error) {
+    return { plan: fallback, mode: 'fallback', warning: `Falha na LLM: ${error.message}` };
+  }
+}
+
 function extractBriefingFromMessages(messages, currentBriefing = {}) {
   const lastUser = [...messages].reverse().find((message) => message.role === 'user')?.content || '';
   const slideBlock = lastUser.match(/(?:slides?|topicos|tópicos)\s*:\s*([\s\S]+)/i)?.[1] || '';
@@ -771,6 +916,46 @@ async function generateTraining(input) {
   return { ...result, file: relFile, url: `/${relFile}`, plan };
 }
 
+function resolveDeckFile(file) {
+  const clean = String(file || '').replace(/^\/+/, '');
+  if (!clean || !clean.endsWith('.html')) throw new Error('Arquivo do treinamento invalido para revisão.');
+  const filePath = path.resolve(trainingRoot, clean);
+  const relativePath = path.relative(trainingRoot, filePath);
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) throw new Error('Caminho do treinamento fora da pasta permitida.');
+  if (!relativePath.startsWith(`decks${path.sep}`)) throw new Error('A revisão só pode alterar arquivos em treinamentos/decks.');
+  return { filePath, relFile: relativePath.split(path.sep).join('/') };
+}
+
+async function reviseTraining(input) {
+  const instruction = String(input.instruction || '').trim();
+  if (!instruction) throw new Error('Informe o pedido de revisão.');
+  const { filePath, relFile } = resolveDeckFile(input.file);
+  await stat(filePath);
+
+  const result = await llmRevisePlan({
+    instruction,
+    plan: input.plan || {},
+    briefing: normalizeBriefing(input.briefing || {})
+  });
+  const plan = result.plan;
+  await writeFile(filePath, renderDeck(plan));
+  await writeCatalog({
+    title: plan.title,
+    area: plan.area,
+    version: 'rev',
+    file: relFile,
+    status: 'Revisado',
+    description: plan.objective || plan.subtitle || input.briefing?.objective || ''
+  });
+  return {
+    ...result,
+    file: relFile,
+    url: `/${relFile}`,
+    plan,
+    reply: `Treinamento atualizado com sucesso. A revisão foi aplicada no mesmo arquivo com ${plan.slides.length} slides.`
+  };
+}
+
 async function serveStatic(req, res) {
   const url = new URL(req.url, 'http://localhost');
   const pathname = url.pathname === '/' ? '/index.html' : url.pathname;
@@ -808,6 +993,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/generate') {
       if (!requireGeneratorKey(req, res)) return;
       return json(res, 200, await generateTraining(await readBody(req)));
+    }
+    if (req.method === 'POST' && url.pathname === '/api/revise') {
+      if (!requireGeneratorKey(req, res)) return;
+      return json(res, 200, await reviseTraining(await readBody(req)));
     }
     if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { ok: true, trainingRoot });
     return serveStatic(req, res);
