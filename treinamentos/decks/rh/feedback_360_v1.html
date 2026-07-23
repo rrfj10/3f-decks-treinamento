@@ -545,8 +545,9 @@ display:none;
 body.sidebar-collapsed .menu-item{
 width:46px;
 height:46px;
-display:grid;
-place-items:center;
+display:flex;
+align-items:center;
+justify-content:center;
 gap:0;
 padding:0;
 border-radius:14px;
@@ -554,11 +555,22 @@ margin:0 auto;
 }
 
 body.sidebar-collapsed .menu-item i{
-width:auto;
+width:22px;
+height:22px;
 min-width:0;
 margin:0;
-font-size:17px;
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:16px;
 line-height:1;
+text-align:center;
+}
+
+body.sidebar-collapsed .menu-item i::before{
+display:block;
+width:1em;
+text-align:center;
 }
 
 body.sidebar-collapsed .menu-item:hover,
@@ -1407,6 +1419,9 @@ body.light-mode .kpi-section-title{background:rgba(255,255,255,0.68);border-colo
 body.light-mode .kpi-card .kpi-abbr{color:#003467!important;}
 body.light-mode .kpi-card .kpi-name{color:#37506F!important;}
 body.light-mode .training-subtitle,body.light-mode .top-progress span,body.light-mode .lead,body.light-mode .menu-item span,body.light-mode .progress-info,body.light-mode .card p,body.light-mode .simple-table td,body.light-mode .capa-subtitle{color:#37506F;}
+body.light-mode .capa-eyebrow{color:#5E88C1!important;opacity:1;}
+body.light-mode .capa-meta-item{color:#244567!important;background:rgba(255,255,255,0.68);border-color:rgba(0,52,103,0.14);box-shadow:0 10px 28px rgba(0,52,103,0.07);}
+body.light-mode .capa-meta-item i{color:#B88A22;}
 body.light-mode .menu-title{color:#45617F;}
 body.light-mode .slide,body.light-mode .menu-item strong,body.light-mode .card h3,body.light-mode h2{color:#102033;}
 body.light-mode .menu-item:hover,body.light-mode .menu-item.active,body.light-mode .action-btn:hover{background:rgba(94,136,193,0.13);border-color:rgba(0,52,103,0.18);}
