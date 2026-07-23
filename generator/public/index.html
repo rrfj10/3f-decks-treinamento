@@ -66,8 +66,12 @@ body.sidebar-collapsed .module i:before{display:grid;width:22px;height:22px;plac
 .brief-list{display:grid;gap:8px}
 .brief-row{display:grid;grid-template-columns:140px 1fr;gap:10px;font-size:13px;line-height:1.35}
 .brief-row span{color:#DDEAFF}
-.brief-row button{all:unset;color:#fff;cursor:pointer}
+.brief-row button{all:unset;display:grid;grid-template-columns:1fr 18px;align-items:center;gap:8px;color:#fff;cursor:pointer;border-radius:6px;padding:4px 6px;margin:-4px -6px}
+.brief-row button:hover{background:rgba(94,136,193,.12)}
+.brief-row button b{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.brief-row button i{font-size:11px;color:#6BB7FF;text-align:center;opacity:.75}
 .brief-row button.missing{color:var(--accent);font-weight:700}
+.brief-row button.missing i{color:var(--accent)}
 .route-panel{min-height:0}
 .route-top{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px;font-size:12px}
 .route-count strong{display:block;font-size:13px}
@@ -162,6 +166,7 @@ body.light-mode .peer,
 body.light-mode .panel h2,
 body.light-mode .brief-row span,
 body.light-mode .brief-row button,
+body.light-mode .brief-row button b,
 body.light-mode .route-count strong,
 body.light-mode .route-count span,
 body.light-mode .slide-row strong,
@@ -173,6 +178,18 @@ color:#102033;
 
 body.light-mode .brief-row button.missing,
 body.light-mode .status-title{
+color:#8A640C;
+}
+
+body.light-mode .brief-row button:hover{
+background:rgba(94,136,193,.12);
+}
+
+body.light-mode .brief-row button i{
+color:#003467;
+}
+
+body.light-mode .brief-row button.missing i{
 color:#8A640C;
 }
 

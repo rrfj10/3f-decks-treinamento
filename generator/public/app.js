@@ -239,8 +239,39 @@ function fieldBriefing() {
   return Object.fromEntries(Object.entries(fields).map(([key, input]) => [key, input.value.trim()]));
 }
 
+function comparableText(value) {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function dedupeDescription(value) {
+  const seen = new Set();
+  return String(value || '').split(/\n+/)
+    .map((line) => line.replace(/^[-*\d. )]+/, '').trim())
+    .filter((line) => {
+      const key = comparableText(line);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join('\n');
+}
+
+function sanitizeBriefing(data) {
+  const clean = {};
+  for (const [key, value] of Object.entries(data || {})) {
+    const text = String(value ?? '').trim();
+    if (!text) continue;
+    clean[key] = key === 'description' ? dedupeDescription(text) : text;
+  }
+  return clean;
+}
+
 function applyBriefing(next) {
-  briefing = { ...briefing, ...next };
+  briefing = sanitizeBriefing({ ...briefing, ...sanitizeBriefing(next) });
   for (const [key, input] of Object.entries(fields)) {
     if (briefing[key] != null && briefing[key] !== input.value) input.value = briefing[key];
   }
@@ -295,7 +326,7 @@ function renderMessages() {
 }
 
 function estimatedSlides(data) {
-  return draftPlan?.slides || data.description.split(/\n+/).map((line) => line.replace(/^[-*\d. )]+/, '').trim()).filter(Boolean).map((title, index) => ({ title, type: index % 2 ? 'cards' : 'checklist' }));
+  return draftPlan?.slides || dedupeDescription(data.description).split(/\n+/).filter(Boolean).map((title, index) => ({ title, type: index % 2 ? 'cards' : 'checklist' }));
 }
 
 function missingRequired(data) {
@@ -325,7 +356,7 @@ function renderBriefing(data) {
     ['Nível', data.level],
     ['Tom', data.tone]
   ];
-  briefingPanel.innerHTML = rows.map(([label, value]) => `<div class="brief-row"><span>${label}</span><button class="${value ? '' : 'missing'}" data-field-label="${label}">${escapeHtml(value || 'Ainda não informado')}</button></div>`).join('');
+  briefingPanel.innerHTML = rows.map(([label, value]) => `<div class="brief-row"><span>${label}</span><button class="${value ? 'filled' : 'missing'}" data-field-label="${label}" title="Clique para corrigir ${escapeHtml(label.toLowerCase())}"><b>${escapeHtml(value || 'Ainda não informado')}</b><i class="fas ${value ? 'fa-pen' : 'fa-plus'}"></i></button></div>`).join('');
 }
 
 function renderRoute(data) {
@@ -358,7 +389,8 @@ function renderStatus(data) {
 }
 
 function renderPreview() {
-  const data = fieldBriefing();
+  const data = sanitizeBriefing(fieldBriefing());
+  if (data.description !== fields.description.value.trim()) fields.description.value = data.description || '';
   renderBriefing(data);
   renderRoute(data);
   renderStatus(data);

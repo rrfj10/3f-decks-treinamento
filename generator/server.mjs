@@ -69,6 +69,52 @@ function esc(value) {
     .replaceAll('"', '&quot;');
 }
 
+function comparableText(value) {
+  return String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function dedupeLines(value) {
+  const seen = new Set();
+  return String(value || '').split(/\n+/)
+    .map((line) => line.replace(/^[-*\d. )]+/, '').trim())
+    .filter((line) => {
+      const key = comparableText(line);
+      if (!key || seen.has(key) || briefingLabelPattern.test(line)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join('\n');
+}
+
+function mergeDescription(current, next) {
+  const seen = new Set();
+  const lines = [];
+  for (const source of [current, next]) {
+    for (const line of String(source || '').split(/\n+/)) {
+      const clean = line.replace(/^[-*\d. )]+/, '').trim();
+      const key = comparableText(clean);
+      if (!key || seen.has(key) || briefingLabelPattern.test(clean)) continue;
+      seen.add(key);
+      lines.push(clean);
+    }
+  }
+  return lines.join('\n');
+}
+
+function normalizeBriefing(briefing = {}) {
+  const clean = {};
+  for (const [key, value] of Object.entries(briefing)) {
+    const text = String(value ?? '').trim();
+    if (!text) continue;
+    clean[key] = key === 'description' ? dedupeLines(text) : text;
+  }
+  return clean;
+}
+
 function hasValidGeneratorKey(req) {
   if (!requireAuth) return true;
   const received = String(req.headers['x-api-key'] || '').trim();
@@ -298,14 +344,14 @@ async function llmPlan(input) {
 }
 
 function extractBriefingFromMessages(messages, currentBriefing = {}) {
-  const text = messages.map((message) => `${message.role}: ${message.content}`).join('\n');
   const lastUser = [...messages].reverse().find((message) => message.role === 'user')?.content || '';
   const slideBlock = lastUser.match(/(?:slides?|topicos|tópicos)\s*:\s*([\s\S]+)/i)?.[1] || '';
-  const linesSource = slideBlock || lastUser;
+  const bulletLike = lastUser.split(/\n+/).filter((line) => /^\s*[-*\d. )]+/.test(line)).length >= 2;
+  const linesSource = slideBlock || (bulletLike ? lastUser : '');
   const lines = linesSource.split(/\n+/)
     .map((line) => line.replace(/^[-*\d. )]+/, '').trim())
     .filter((line) => line && !briefingLabelPattern.test(line));
-  const briefing = {
+  const briefing = normalizeBriefing({
     title: currentBriefing.title || '',
     theme: currentBriefing.theme || '',
     area: currentBriefing.area || '',
@@ -318,7 +364,7 @@ function extractBriefingFromMessages(messages, currentBriefing = {}) {
     practice: currentBriefing.practice || '',
     evaluation: currentBriefing.evaluation || '',
     description: currentBriefing.description || ''
-  };
+  });
 
   const patterns = [
     ['title', /(?:titulo|título|nome do treinamento)[ \t]*[:=-][ \t]*([^\n]+)/i],
@@ -335,24 +381,21 @@ function extractBriefingFromMessages(messages, currentBriefing = {}) {
   ];
 
   for (const [key, pattern] of patterns) {
-    const match = text.match(pattern);
-    if (match) briefing[key] = match[1].split('\n')[0].trim();
+    for (const message of messages) {
+      if (message.role !== 'user') continue;
+      const match = String(message.content || '').match(pattern);
+      if (match) briefing[key] = match[1].split('\n')[0].trim();
+    }
   }
 
   if (!briefing.title && lines.length) briefing.title = lines[0].slice(0, 80);
-  if (!briefing.description) briefing.description = lines.join('\n');
-  else if (lines.length) {
-    const newLines = lines.filter((line) => !briefing.description.includes(line));
-    if (newLines.length) briefing.description = `${briefing.description}\n${newLines.join('\n')}`.trim();
-  }
+  briefing.description = mergeDescription(briefing.description, lines.join('\n'));
 
-  return briefing;
+  return normalizeBriefing(briefing);
 }
 
 function briefingSlides(briefing) {
-  const raw = briefing.description || '';
-  return raw.split(/\n+/)
-    .map((line) => line.replace(/^[-*\d. )]+/, '').trim())
+  return dedupeLines(briefing.description).split(/\n+/)
     .filter(Boolean)
     .slice(0, 10);
 }
@@ -413,7 +456,7 @@ Nao gere HTML. Nao invente dados especificos quando faltar contexto; faca pergun
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
     const parsed = JSON.parse(content.replace(/^```json\s*|\s*```$/g, ''));
-    const mergedBriefing = { ...briefing, ...(parsed.briefing || {}) };
+    const mergedBriefing = normalizeBriefing({ ...briefing, ...(parsed.briefing || {}) });
     return {
       mode: 'llm',
       briefing: mergedBriefing,
